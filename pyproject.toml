@@ -20,6 +20,7 @@ dependencies = [
 infra-init = "infrastructure.cli:init"
 infra-monitor = "infrastructure.cli:monitor"
 infra-reset = "infrastructure.cli:reset"
+infra = "infrastructure.cli:main
 
 [tool.setuptools.package-data]
 infrastructure = [
