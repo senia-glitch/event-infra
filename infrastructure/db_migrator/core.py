@@ -56,19 +56,19 @@ def run_migration(db_url: str, schema_path: str, alembic_dir: str = None) -> boo
 
         alembic_ini_path = db_migrator_dir / "alembic.ini"
 
-        # ========== FIX: пересохраняем alembic.ini в UTF-8, если он повреждён ==========
+        # ========== АВТОМАТИЧЕСКОЕ ИСПРАВЛЕНИЕ КОДИРОВКИ ==========
         try:
             with open(alembic_ini_path, 'r', encoding='utf-8') as f:
                 content = f.read()
         except UnicodeDecodeError:
-            logger.warning("alembic.ini не в UTF-8, пробуем cp1251 и пересохраняем...")
+            logger.warning("alembic.ini не в UTF-8, пересохраняем из системной кодировки...")
             with open(alembic_ini_path, 'r', encoding='cp1251') as f:
                 content = f.read()
             with open(alembic_ini_path, 'w', encoding='utf-8') as f:
                 f.write(content)
             logger.info("alembic.ini пересохранён в UTF-8")
 
-        # Теперь создаём Config БЕЗ параметра encoding (он не поддерживается)
+        # Создаём конфиг Alembic
         alembic_cfg = Config(str(alembic_ini_path))
         alembic_cfg.set_main_option("sqlalchemy.url", db_url)
         alembic_cfg.set_main_option("script_location", str(alembic_dir))
