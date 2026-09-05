@@ -15,17 +15,17 @@ from . import run_all
 async def _run_tests_async(db_url: str, db_url_async: str, verbose: bool = False) -> bool:
     # 1. Загружаем модели из шаблона
     schema_path = resources.files("infrastructure.templates") / "models_template.py"
-    
+
     # 2. Применяем миграции (используем исходный run_migration без alembic_dir)
     run_migration(db_url, str(schema_path))
-    
+
     # 3. Получаем загруженный модуль из sys.modules
     models = sys.modules.get('models_template')
     if models is None:
         raise RuntimeError("Модуль models_template не загружен")
     schemas = models.get_all_schemas()
 
-    # 4. Создаём каналы с параметрами из исходного проекта (run_infrastructure.py)
+    # 4. Создаём каналы с параметрами из исходного проекта
     channels = {
         "read": ChannelConfig(pool_size=39, max_overflow=10, queue_maxsize=50000),
         "write": ChannelConfig(pool_size=60, max_overflow=5, queue_maxsize=50000),
