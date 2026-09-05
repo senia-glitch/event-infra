@@ -70,7 +70,7 @@ async def test_validation_error():
     print("  Validation error caught")
 
 
-async def run_all_tests():
+async def run_all_tests(verbose: bool = False):
     tests = [
         ("create_and_read", test_create_and_read),
         ("update", test_update),
