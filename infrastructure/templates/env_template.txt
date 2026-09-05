@@ -14,6 +14,9 @@ DB_URL=postgresql://postgres:123@localhost:5432/Proj_v2
 # Асинхронный URL (используется для работы event_infrastructure)
 DB_URL_ASYNC=postgresql+asyncpg://postgres:123@localhost:5432/Proj_v2
 
+# БД для тестирования
+TEST_DB_URL = postgresql://postgres:123@localhost:5432/Proj_v2                # Синхронный URL (используется для миграций)
+TEST_DB_URL_ASYNC = postgresql+asyncpg://postgres:123@localhost:5432/Proj_v2  # Асинхронный URL (используется для работы event_infrastructure)
 
 # --- КАНАЛЫ ---
 
