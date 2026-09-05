@@ -129,7 +129,7 @@ def init():
     cwd = Path.cwd()
     ok1 = _copy_template("models_template.py", cwd / "models.py", args.force)
     ok2 = _copy_template("run_infrastructure_template.py", cwd / "run_infrastructure.py", args.force)
-    ok3 = _copy_template("env_template.txt", cwd / ".env", args.force)
+    ok3 = _copy_template("env_template.txt", cwd / ".infra.env", args.force)   # <-- изменено имя
     ok4 = _create_alembic_dir(args.force)
 
     if ok1 and ok2 and ok3 and ok4:
