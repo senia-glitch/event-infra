@@ -38,7 +38,7 @@ def load_models(schema_path: str):
     return module
 
 
-def run_migration(db_url: str, schema_path: str) -> bool:
+def run_migration(db_url: str, schema_path: str, alembic_dir: str = None) -> bool:
     """
     Основная функция миграции.
     Возвращает True если миграция прошла успешно или изменений нет.
@@ -46,31 +46,44 @@ def run_migration(db_url: str, schema_path: str) -> bool:
     """
 
     try:
-        # Загружаем модели
         module = load_models(schema_path)
 
-        # Настраиваем Alembic
         db_migrator_dir = Path(__file__).parent
-        alembic_ini_path = db_migrator_dir / "alembic.ini"
-        alembic_dir = db_migrator_dir / "alembic"
+        if alembic_dir is None:
+            alembic_dir = db_migrator_dir / "alembic"
+        else:
+            alembic_dir = Path(alembic_dir)
 
-        alembic_cfg = Config(file_=str(alembic_ini_path), encoding='utf-8')
+        alembic_ini_path = db_migrator_dir / "alembic.ini"
+
+        # ========== FIX: пересохраняем alembic.ini в UTF-8, если он повреждён ==========
+        try:
+            with open(alembic_ini_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+        except UnicodeDecodeError:
+            logger.warning("alembic.ini не в UTF-8, пробуем cp1251 и пересохраняем...")
+            with open(alembic_ini_path, 'r', encoding='cp1251') as f:
+                content = f.read()
+            with open(alembic_ini_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            logger.info("alembic.ini пересохранён в UTF-8")
+
+        # Теперь создаём Config БЕЗ параметра encoding (он не поддерживается)
+        alembic_cfg = Config(str(alembic_ini_path))
         alembic_cfg.set_main_option("sqlalchemy.url", db_url)
         alembic_cfg.set_main_option("script_location", str(alembic_dir))
 
-        # Проверяем различия между схемой в моделях и реальной БД
+        # Проверяем различия
         engine = create_engine(db_url)
         with engine.connect() as conn:
             mc = MigrationContext.configure(conn)
             diff = compare_metadata(mc, module.metadata)
         engine.dispose()
 
-        # Если различий нет — выходим
         if not diff:
             logger.info("Схема актуальна, изменений нет")
             return True
 
-        # Создаём и применяем миграцию
         logger.info("Обнаружены изменения в схеме, создаём миграцию...")
         command.revision(alembic_cfg, autogenerate=True, message="auto")
         command.upgrade(alembic_cfg, "head")
