@@ -38,6 +38,7 @@ include = ["infrastructure*"]
 infrastructure = [
     "templates/*",
     "templates/env_template.txt",
+    "db_migrator/alembic.ini",
     "db_migrator/alembic/*",
     "db_migrator/alembic/versions/*",
     "tests/*.py",
