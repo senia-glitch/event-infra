@@ -17,7 +17,7 @@ def _copy_template(template_name: str, dest: Path, force: bool = False) -> bool:
 
 
 def _create_alembic_dir(force: bool = False) -> bool:
-    """Создаёт папку alembic с шаблоном из пакета."""
+    """Создаёт папку alembic с минимальным содержимым."""
     alembic_path = Path.cwd() / "alembic"
     if alembic_path.exists():
         if not force:
@@ -27,9 +27,96 @@ def _create_alembic_dir(force: bool = False) -> bool:
             shutil.rmtree(alembic_path)
             print(f"Папка {alembic_path} удалена (--force)")
 
-    # Копируем шаблон alembic из пакета
-    template_dir = resources.files("infrastructure.db_migrator").joinpath("alembic")
-    shutil.copytree(template_dir, alembic_path)
+    alembic_path.mkdir(parents=True)
+    versions_path = alembic_path / "versions"
+    versions_path.mkdir()
+
+    # env.py
+    (alembic_path / "env.py").write_text("""
+from logging.config import fileConfig
+from sqlalchemy import engine_from_config, pool
+from alembic import context
+
+config = context.config
+
+if config.config_file_name is not None:
+    fileConfig(config.config_file_name)
+
+import sys
+target_metadata = None
+for module in sys.modules.values():
+    if hasattr(module, 'metadata') and hasattr(module.metadata, 'tables'):
+        target_metadata = module.metadata
+        break
+
+def run_migrations_offline():
+    url = config.get_main_option("sqlalchemy.url")
+    context.configure(
+        url=url,
+        target_metadata=target_metadata,
+        literal_binds=True,
+        compare_type=False,
+        compare_server_default=True,
+    )
+    with context.begin_transaction():
+        context.run_migrations()
+
+def run_migrations_online():
+    connectable = engine_from_config(
+        config.get_section(config.config_ini_section, {}),
+        prefix="sqlalchemy.",
+        poolclass=pool.NullPool,
+    )
+    with connectable.connect() as connection:
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            compare_type=False,
+            compare_server_default=True,
+        )
+        with context.begin_transaction():
+            context.run_migrations()
+
+if context.is_offline_mode():
+    run_migrations_offline()
+else:
+    run_migrations_online()
+""", encoding="utf-8")
+
+    # script.py.mako
+    (alembic_path / "script.py.mako").write_text("""
+\"\"\"${message}
+
+Revision ID: ${up_revision}
+Revises: ${down_revision | comma,n}
+Create Date: ${create_date}
+
+\"\"\"
+from typing import Sequence, Union
+
+from alembic import op
+import sqlalchemy as sa
+import sqlmodel
+${imports if imports else ""}
+
+# revision identifiers, used by Alembic.
+revision: str = ${repr(up_revision)}
+down_revision: Union[str, Sequence[str], None] = ${repr(down_revision)}
+branch_labels: Union[str, Sequence[str], None] = ${repr(branch_labels)}
+depends_on: Union[str, Sequence[str], None] = ${repr(depends_on)}
+
+def upgrade() -> None:
+    \"\"\"Upgrade schema.\"\"\"
+    ${upgrades if upgrades else "pass"}
+
+def downgrade() -> None:
+    \"\"\"Downgrade schema.\"\"\"
+    ${downgrades if downgrades else "pass"}
+""", encoding="utf-8")
+
+    # versions/__init__.py
+    (versions_path / "__init__.py").write_text("", encoding="utf-8")
+
     print(f"Создана папка: {alembic_path}")
     return True
 
@@ -64,7 +151,6 @@ def reset():
 
 def monitor():
     import sys
-    # Если аргументы содержат --help или -h, показываем справку
     if len(sys.argv) > 1 and sys.argv[1] in ("-h", "--help"):
         print("Использование: infra-monitor [интервал_в_секундах]")
         print("По умолчанию интервал 0.5 секунды")
