@@ -121,6 +121,8 @@ def downgrade() -> None:
     return True
 
 
+# === Старые команды (обратная совместимость) ===
+
 def init():
     parser = argparse.ArgumentParser(description="Инициализация инфраструктурного слоя в текущей директории")
     parser.add_argument("--force", action="store_true", help="Перезаписать существующие файлы")
@@ -129,7 +131,7 @@ def init():
     cwd = Path.cwd()
     ok1 = _copy_template("models_template.py", cwd / "models.py", args.force)
     ok2 = _copy_template("run_infrastructure_template.py", cwd / "run_infrastructure.py", args.force)
-    ok3 = _copy_template("env_template.txt", cwd / ".infra.env", args.force)   # <-- изменено имя
+    ok3 = _copy_template("env_template.txt", cwd / ".infra.env", args.force)
     ok4 = _create_alembic_dir(args.force)
 
     if ok1 and ok2 and ok3 and ok4:
@@ -150,7 +152,6 @@ def reset():
 
 
 def monitor():
-    import sys
     if len(sys.argv) > 1 and sys.argv[1] in ("-h", "--help"):
         print("Использование: infra-monitor [интервал_в_секундах]")
         print("По умолчанию интервал 0.5 секунды")
@@ -162,3 +163,52 @@ def monitor():
         asyncio.run(_monitor(interval))
     except KeyboardInterrupt:
         print("\nStopped.")
+
+
+# === Новая команда `infra` с подкомандами ===
+
+def run_tests():
+    """Запускает встроенные тесты."""
+    from infrastructure.tests import run_tests as _run_tests
+    success = _run_tests()
+    sys.exit(0 if success else 1)
+
+
+def help_command():
+    print("""
+Доступные команды инфраструктурного слоя:
+
+  infra init [--force]              Инициализация проекта (создание моделей, конфига, alembic)
+  infra monitor [интервал]          Мониторинг запущенной инфраструктуры (подключение к API)
+  infra reset <db_url> [--alembic-dir]  Полный сброс БД и удаление миграций
+  infra test                        Запуск встроенных тестов (требуется тестовая БД)
+  infra help                        Показать эту справку
+
+Для обратной совместимости также доступны отдельные команды:
+  infra-init, infra-monitor, infra-reset
+""")
+
+
+def main():
+    if len(sys.argv) < 2:
+        help_command()
+        return
+
+    command = sys.argv[1].lower()
+    # Удаляем имя команды, оставляем остальные аргументы
+    sys.argv = [sys.argv[0]] + sys.argv[2:]
+
+    if command == "init":
+        init()
+    elif command == "monitor":
+        monitor()
+    elif command == "reset":
+        reset()
+    elif command == "test":
+        run_tests()
+    elif command in ("help", "-h", "--help"):
+        help_command()
+    else:
+        print(f"Неизвестная команда: {command}")
+        help_command()
+        sys.exit(1)
