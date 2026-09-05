@@ -5,6 +5,7 @@ import os
 import importlib.util
 from pathlib import Path
 from importlib import resources
+import shutil
 
 from infrastructure.db_migrator import run_migration
 from infrastructure.event_infrastructure import create_pipeline, shutdown_pipeline
@@ -22,7 +23,6 @@ async def _run_tests_async(db_url: str, db_url_async: str) -> bool:
     schemas = models.get_all_schemas()
 
     # 2. Применяем миграции к тестовой БД (создаём папку alembic в текущей директории)
-    # Используем временную папку для alembic, чтобы не засорять проект.
     alembic_dir = Path.cwd() / ".test_alembic"
     run_migration(db_url, str(schema_path), alembic_dir=str(alembic_dir))
 
@@ -52,7 +52,6 @@ async def _run_tests_async(db_url: str, db_url_async: str) -> bool:
     await shutdown_pipeline(router)
 
     # 7. Удаляем временную папку alembic
-    import shutil
     if alembic_dir.exists():
         shutil.rmtree(alembic_dir)
 
