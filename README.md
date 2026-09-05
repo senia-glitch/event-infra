@@ -1,89 +1,40 @@
-# event-infra
+## Конфигурация
 
-Инфраструктурный слой для проектов на PostgreSQL + SQLModel.  
-Поставляется как устанавливаемый Python-пакет. Включает:
+После инициализации (`infra-init`) создаётся файл `.infra.env` со всеми настройками.  
+Вы можете переопределить имя файла через переменную окружения `INFRA_ENV_FILE`.
 
-- Миграции (на основе Alembic)
-- Асинхронный EventRouter с пулами соединений, очередями и универсальным CRUD
-- Мониторинг в реальном времени
-- Полный сброс базы данных и миграций
+В `.infra.env` можно:
+- Указать строки подключения к БД.
+- Добавить произвольные каналы в переменную `CHANNELS` (через запятую) и задать для них параметры с префиксом `ИМЯ_КАНАЛА_`.
+- Настроить пулы, таймауты, кеш и повторные попытки.
 
-## Установка
+Пример добавления канала `report`:
+```env
+CHANNELS=read,write,admin,report
+REPORT_POOL_SIZE=5
+REPORT_MAX_OVERFLOW=2
+REPORT_QUEUE_MAXSIZE=100
+Затем используйте его в коде:
+
+python
+result = await router.read("user", 1, channel="report")
+text
+
+---
+
+## 6. Команды для применения изменений
+
+После того как вы замените файлы в своём репозитории:
 
 ```bash
-pip install git+https://github.com/ваш-username/ваш-репозиторий.git
-Все зависимости (SQLAlchemy, SQLModel, Alembic, asyncpg, psycopg2-binary, httpx) установятся автоматически.
-
-Инициализация проекта
-Перейдите в пустую папку вашего будущего проекта и выполните:
-
-bash
-infra-init
-Будут созданы три файла:
-
-models.py – шаблон SQLModel-моделей (источник истины для схемы БД)
-
-run_infrastructure.py – скрипт запуска инфраструктуры (миграции + EventRouter + метрики)
-
-.env – файл с настройками подключения и параметрами (с русскими комментариями)
-
-При повторном запуске используйте флаг --force для перезаписи.
-
-Настройка
-Отредактируйте .env, указав как минимум:
-
-env
-DB_URL=postgresql://user:pass@localhost:5432/your_db
-DB_URL_ASYNC=postgresql+asyncpg://user:pass@localhost:5432/your_db
-Остальные параметры (размеры пулов, таймауты, кеш) можно оставить по умолчанию или изменить под свои нужды.
-
-Запуск инфраструктуры
-bash
-python run_infrastructure.py
-Скрипт:
-
-Проверяет наличие изменений в моделях и применяет миграции (если есть)
-
-Запускает EventRouter с настройками из .env
-
-Выводит в консоль метрики (обновляются каждую секунду)
-
-Остановка – Ctrl+C. При завершении все пулы соединений закрываются корректно.
-
-Мониторинг (отдельная команда)
-Если инфраструктура уже запущена (например, на другом сервере), можно подключиться к её API и наблюдать за статистикой:
+git add infrastructure/templates/env_template.txt
+git add infrastructure/templates/run_infrastructure_template.py
+git add infrastructure/cli.py
+git add README.md
+git commit -m "feat: flexible config via .infra.env, arbitrary channels support"
+git push
+Затем клиент обновляет пакет и пересоздаёт конфигурацию:
 
 bash
-infra-monitor [интервал_в_секундах]
-По умолчанию интервал 0.5 с. Мониторинг обращается к эндпоинтам /system/stats и /system/scenario-metrics (подразумевается, что ваш сервис их предоставляет).
-
-Сброс (полная очистка)
-Удаляет все файлы миграций (alembic/versions/*.py), кеш Python и все таблицы в публичной схеме БД.
-
-bash
-infra-reset postgresql://user:pass@localhost:5432/your_db
-Если ваша папка alembic находится не в текущей директории, укажите её явно:
-
-bash
-infra-reset postgresql://... --alembic-dir ./path/to/alembic
-После сброса можно запустить run_infrastructure.py заново – миграции будут созданы с нуля.
-
-Структура пакета (для разработчиков)
-text
-event-infra/
-├── infrastructure/
-│   ├── __init__.py
-│   ├── cli.py                  # точки входа команд
-│   ├── config_loader.py        # загрузка .env
-│   ├── monitor.py              # мониторинг
-│   ├── templates/              # шаблоны для infra-init
-│   ├── db_migrator/            # утилита миграций
-│   └── event_infrastructure/   # ядро (пулы, очереди, CRUD)
-├── pyproject.toml
-└── README.md
-Требования
-Python 3.8+
-
-PostgreSQL (9.6+)
-
-Установленный пакет (см. раздел «Установка»)
+pip install --upgrade git+https://github.com/senia-glitch/event-infra.git
+infra-init --force   # создаст .infra.env с новым содержимым
