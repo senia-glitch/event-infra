@@ -1,5 +1,7 @@
 """Запуск всех тестов с общим router."""
 
+import traceback
+
 import infrastructure.tests.test_db.test_01_connection as t01
 import infrastructure.tests.test_db.test_02_read_write as t02
 import infrastructure.tests.test_db.test_03_mixed as t03
@@ -15,7 +17,7 @@ import infrastructure.tests.test_router.test_02_custom as custom
 import infrastructure.tests.test_db.test_11_cache_load as t11
 
 
-async def run(router):
+async def run(router, verbose: bool = False):
     """Запускает все тесты, используя переданный router."""
     
     # Передаём router в DB тесты
@@ -68,14 +70,20 @@ async def run(router):
         except Exception as e:
             failed += 1
             all_passed = False
-            print(f"  ❌ {name}: {e}")
+            print(f"  ❌ {name}")
+            if verbose:
+                print("  " + "-" * 40)
+                traceback.print_exc()
+                print("  " + "-" * 40)
+            else:
+                print(f"     {e}")
 
     print(f"  DB Tests: {passed} passed, {failed} failed")
 
     # Router тесты
     print("\n--- Router Tests ---")
-    crud_ok = await crud.run_all_tests()
-    custom_ok = await custom.run_all_tests()
+    crud_ok = await crud.run_all_tests(verbose=verbose)
+    custom_ok = await custom.run_all_tests(verbose=verbose)
 
     if not crud_ok or not custom_ok:
         all_passed = False
