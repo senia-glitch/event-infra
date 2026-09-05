@@ -6,7 +6,10 @@ build-backend = "setuptools.build_meta"
 name = "event-infra"
 version = "0.1.0"
 description = "Инфраструктурный слой: миграции, event router, мониторинг"
+readme = "README.md"
 requires-python = ">=3.8"
+authors = [{ name = "Your Name", email = "you@example.com" }]
+license = { text = "MIT" }
 dependencies = [
     "sqlalchemy>=2.0",
     "sqlmodel>=0.0.14",
@@ -20,7 +23,16 @@ dependencies = [
 infra-init = "infrastructure.cli:init"
 infra-monitor = "infrastructure.cli:monitor"
 infra-reset = "infrastructure.cli:reset"
-infra = "infrastructure.cli:main
+infra = "infrastructure.cli:main"
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+]
+
+[tool.setuptools.packages.find]
+include = ["infrastructure*"]
 
 [tool.setuptools.package-data]
 infrastructure = [
@@ -28,4 +40,7 @@ infrastructure = [
     "templates/env_template.txt",
     "db_migrator/alembic/*",
     "db_migrator/alembic/versions/*",
+    "tests/*.py",
+    "tests/test_db/*.py",
+    "tests/test_router/*.py",
 ]
