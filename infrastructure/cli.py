@@ -43,6 +43,13 @@ def reset():
 
 
 def monitor():
+    import sys
+    # Если аргументы содержат --help или -h, показываем справку
+    if len(sys.argv) > 1 and sys.argv[1] in ("-h", "--help"):
+        print("Использование: infra-monitor [интервал_в_секундах]")
+        print("По умолчанию интервал 0.5 секунды")
+        return
+
     from infrastructure.monitor import monitor as _monitor
     interval = float(sys.argv[1]) if len(sys.argv) > 1 else 0.5
     try:
