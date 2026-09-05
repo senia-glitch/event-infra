@@ -20,9 +20,30 @@ async def _create_role():
 
 async def _seed():
     role_id = await _create_role()
-    await router.create(TABLE, {"role_id": role_id, "username": "alice", "personal_number": "PN_A", "password_hash": "hash"})
-    await router.create(TABLE, {"role_id": role_id, "username": "bob", "personal_number": "PN_B", "password_hash": "hash"})
-    await router.create(TABLE, {"role_id": role_id, "username": "charlie", "personal_number": "PN_C", "password_hash": "hash"})
+    await router.create(TABLE, {
+        "role_id": role_id,
+        "username": "alice",
+        "personal_number": "PN_A",
+        "password_hash": "hash",
+        "full_name": "Alice Custom",
+        "email": "alicec@test.local",
+    })
+    await router.create(TABLE, {
+        "role_id": role_id,
+        "username": "bob",
+        "personal_number": "PN_B",
+        "password_hash": "hash",
+        "full_name": "Bob Custom",
+        "email": "bobc@test.local",
+    })
+    await router.create(TABLE, {
+        "role_id": role_id,
+        "username": "charlie",
+        "personal_number": "PN_C",
+        "password_hash": "hash",
+        "full_name": "Charlie Custom",
+        "email": "charliec@test.local",
+    })
 
 
 async def test_select_with_params():
@@ -43,8 +64,16 @@ async def test_insert_with_returning():
     role_id = await _create_role()
 
     r = await router.custom(
-        'INSERT INTO "users" (role_id, username, personal_number, password_hash) VALUES (:role_id, :username, :pn, :hash) RETURNING id, username',
-        {"role_id": role_id, "username": "diana", "pn": "PN_D", "hash": "hash"}, channel="write"
+        'INSERT INTO "users" (role_id, username, personal_number, password_hash, full_name, email) VALUES (:role_id, :username, :pn, :hash, :full_name, :email) RETURNING id, username',
+        {
+            "role_id": role_id,
+            "username": "diana",
+            "pn": "PN_D",
+            "hash": "hash",
+            "full_name": "Diana Custom",
+            "email": "diana@test.local",
+        },
+        channel="write"
     )
     assert r.success
     print(f"  INSERT: {r.count} rows")
@@ -81,10 +110,10 @@ async def run_all_tests(verbose: bool = False):
         ("update_with_params", test_update_with_params),
         ("aggregate", test_aggregate),
     ]
-    
+
     passed = 0
     failed = 0
-    
+
     for name, test_func in tests:
         try:
             await test_func()
@@ -93,7 +122,10 @@ async def run_all_tests(verbose: bool = False):
         except Exception as e:
             failed += 1
             print(f"  ❌ {name}: {e}")
-    
+            if verbose:
+                import traceback
+                traceback.print_exc()
+
     print(f"  Custom: {passed} passed, {failed} failed")
     return failed == 0
 
