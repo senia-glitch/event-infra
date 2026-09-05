@@ -54,7 +54,7 @@ def run_migration(db_url: str, schema_path: str) -> bool:
         alembic_ini_path = db_migrator_dir / "alembic.ini"
         alembic_dir = db_migrator_dir / "alembic"
 
-        alembic_cfg = Config(str(alembic_ini_path))
+        alembic_cfg = Config(file_=str(alembic_ini_path), encoding='utf-8')
         alembic_cfg.set_main_option("sqlalchemy.url", db_url)
         alembic_cfg.set_main_option("script_location", str(alembic_dir))
 
