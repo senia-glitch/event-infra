@@ -74,7 +74,7 @@ async def test_aggregate():
     print(f"  Aggregate: {r.data}")
 
 
-async def run_all_tests():
+async def run_all_tests(verbose: bool = False):
     tests = [
         ("select_with_params", test_select_with_params),
         ("insert_with_returning", test_insert_with_returning),
