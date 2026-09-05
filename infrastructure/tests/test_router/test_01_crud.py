@@ -22,7 +22,14 @@ async def test_create_and_read():
     await _clean()
     role_id = await _create_role()
 
-    r = await router.create(TABLE, {"role_id": role_id, "username": "alice", "personal_number": "PN001", "password_hash": "hash"})
+    r = await router.create(TABLE, {
+        "role_id": role_id,
+        "username": "alice",
+        "personal_number": "PN001",
+        "password_hash": "hash",
+        "full_name": "Alice Test",
+        "email": "alice@test.local",
+    })
     assert r.success, f"Create failed: {r.error}"
     user_id = r.data[0]["id"]
     print(f"  Created user id={user_id}")
@@ -37,7 +44,14 @@ async def test_update():
     await _clean()
     role_id = await _create_role()
 
-    r = await router.create(TABLE, {"role_id": role_id, "username": "bob", "personal_number": "PN002", "password_hash": "hash"})
+    r = await router.create(TABLE, {
+        "role_id": role_id,
+        "username": "bob",
+        "personal_number": "PN002",
+        "password_hash": "hash",
+        "full_name": "Bob Test",
+        "email": "bob@test.local",
+    })
     user_id = r.data[0]["id"]
 
     r = await router.update(TABLE, user_id, {"username": "robert"})
@@ -50,7 +64,14 @@ async def test_delete():
     await _clean()
     role_id = await _create_role()
 
-    r = await router.create(TABLE, {"role_id": role_id, "username": "charlie", "personal_number": "PN003", "password_hash": "hash"})
+    r = await router.create(TABLE, {
+        "role_id": role_id,
+        "username": "charlie",
+        "personal_number": "PN003",
+        "password_hash": "hash",
+        "full_name": "Charlie Test",
+        "email": "charlie@test.local",
+    })
     user_id = r.data[0]["id"]
 
     r = await router.delete(TABLE, user_id)
@@ -65,7 +86,14 @@ async def test_delete():
 async def test_validation_error():
     await _clean()
 
-    r = await router.create(TABLE, {"role_id": "not_a_number", "username": "test", "personal_number": "PN004", "password_hash": "hash"})
+    r = await router.create(TABLE, {
+        "role_id": "not_a_number",
+        "username": "test",
+        "personal_number": "PN004",
+        "password_hash": "hash",
+        "full_name": "Test User",
+        "email": "test@test.local",
+    })
     assert not r.success
     print("  Validation error caught")
 
@@ -77,10 +105,10 @@ async def run_all_tests(verbose: bool = False):
         ("delete", test_delete),
         ("validation_error", test_validation_error),
     ]
-    
+
     passed = 0
     failed = 0
-    
+
     for name, test_func in tests:
         try:
             await test_func()
@@ -89,7 +117,10 @@ async def run_all_tests(verbose: bool = False):
         except Exception as e:
             failed += 1
             print(f"  ❌ {name}: {e}")
-    
+            if verbose:
+                import traceback
+                traceback.print_exc()
+
     print(f"  CRUD: {passed} passed, {failed} failed")
     return failed == 0
 
