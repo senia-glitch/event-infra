@@ -242,11 +242,8 @@ class model_test(SQLModel, table=True):
 
 def get_all_schemas():
     """Автоматически собирает все SQLModel-таблицы из текущего модуля."""
-    import sys
-    module = sys.modules[__name__]
     schemas = {}
-    for attr_name in dir(module):
-        attr = getattr(module, attr_name)
+    for attr_name, attr in globals().items():
         if (
             isinstance(attr, type) and
             issubclass(attr, SQLModel) and
