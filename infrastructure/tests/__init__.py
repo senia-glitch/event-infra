@@ -43,6 +43,7 @@ async def _run_tests_async(db_url: str, db_url_async: str, verbose: bool = False
         max_concurrency=100000,
         pool_recycle=3600,
         pool_pre_ping=True,
+        cache=CacheConfig(enabled=True, ttl_seconds=10.0, max_size=1000),
     )
 
     # 6. Запускаем все тесты
