@@ -167,10 +167,10 @@ def monitor():
 
 # === Новая команда `infra` с подкомандами ===
 
-def run_tests():
+def run_tests(verbose: bool = False):
     """Запускает встроенные тесты."""
     from infrastructure.tests import run_tests as _run_tests
-    success = _run_tests()
+    success = _run_tests(verbose=verbose)
     sys.exit(0 if success else 1)
 
 
@@ -181,7 +181,7 @@ def help_command():
   infra init [--force]              Инициализация проекта (создание моделей, конфига, alembic)
   infra monitor [интервал]          Мониторинг запущенной инфраструктуры (подключение к API)
   infra reset <db_url> [--alembic-dir]  Полный сброс БД и удаление миграций
-  infra test                        Запуск встроенных тестов (требуется тестовая БД)
+  infra test [-v, --verbose]        Запуск встроенных тестов (требуется тестовая БД)
   infra help                        Показать эту справку
 
 Для обратной совместимости также доступны отдельные команды:
@@ -196,16 +196,21 @@ def main():
 
     command = sys.argv[1].lower()
     # Удаляем имя команды, оставляем остальные аргументы
-    sys.argv = [sys.argv[0]] + sys.argv[2:]
+    args = sys.argv[2:]
 
     if command == "init":
+        # Передаём аргументы в init (она сама парсит)
+        sys.argv = [sys.argv[0]] + args
         init()
     elif command == "monitor":
+        sys.argv = [sys.argv[0]] + args
         monitor()
     elif command == "reset":
+        sys.argv = [sys.argv[0]] + args
         reset()
     elif command == "test":
-        run_tests()
+        verbose = "-v" in args or "--verbose" in args
+        run_tests(verbose=verbose)
     elif command in ("help", "-h", "--help"):
         help_command()
     else:
