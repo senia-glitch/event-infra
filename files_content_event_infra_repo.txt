@@ -1,0 +1,3084 @@
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\models.py
+Содержимое:
+from typing import Optional, List, Dict, Any
+from datetime import datetime, time
+
+from sqlmodel import SQLModel, Field
+from sqlalchemy import JSON, UniqueConstraint
+
+
+metadata = SQLModel.metadata
+
+
+# ============================================
+# 1. ПОЛЬЗОВАТЕЛИ И РОЛИ
+# Связи: Role 1→N User (одна роль — много пользователей)
+#        User 1→1 Student/Tutor/Admin (один пользователь — один профиль)
+# ============================================
+
+class Role(SQLModel, table=True):
+    """Роли пользователей."""
+    __tablename__ = "roles"
+    id: Optional[int] = Field(default=None, primary_key=True)                    # [_авто_] ID роли
+    name: str = Field(max_length=50, unique=True)                                # [обязат] Название: 'student', 'tutor', 'admin'
+
+
+class User(SQLModel, table=True):
+    """Пользователи системы."""
+    __tablename__ = "users"
+    id: Optional[int] = Field(default=None, primary_key=True)                    # [_авто_] ID пользователя
+    created_at: Optional[datetime] = Field(default_factory=datetime.now)         # [_авто_] Дата и время создания аккаунта
+    refresh_token: Optional[str] = Field(default=None, max_length=500)           # [необяз] Refresh токен
+
+    role_id: int = Field(foreign_key="roles.id")                                 # [обязат] ID роли (внешний ключ на roles)
+    username: str = Field(max_length=50, unique=True)                            # [обязат] Логин (уникальный)
+    personal_number: str = Field(max_length=50, unique=True)                     # [обязат] Уникальный личный код (буквенно-цифровой)
+    password_hash: str = Field(max_length=255)                                   # [обязат] Хеш пароля (bcrypt)
+    full_name: str = Field(max_length=255)                                       # [обязат] Полное ФИО
+    email: str = Field(max_length=255, unique=True)                              # [обязат] Электронная почта (уникальная)
+
+    gender: Optional[str] = Field(default=None, max_length=20)                   # [необяз] Пол (male/female/other)
+    additional_info: Optional[str] = None                                        # [необяз] Дополнительная информация
+
+
+# ============================================
+# 2. ПРОФИЛИ ПОЛЬЗОВАТЕЛЕЙ
+# Связи: User 1→1 Admin (один пользователь — один админ)
+#        User 1→1 Student (один пользователь — один ученик)
+#        Student 1→N Configuration (один ученик — много конфигураций)
+#        Student 1→1 StudentSettings (один ученик — одни настройки)
+#        User 1→1 Tutor (один пользователь — один репетитор)
+#        Tutor 1→N Configuration (один репетитор — много конфигураций)
+#        Tutor 1→1 TutorSettings (один репетитор — одни настройки)
+#        Tutor 1→N Booking (один репетитор — много броней)
+#        Tutor 1→N Lesson (один репетитор — много уроков)
+# ============================================
+
+class Admin(SQLModel, table=True):
+    """Администраторы."""
+    __tablename__ = "admins"
+    id: Optional[int] = Field(default=None, primary_key=True)                    # [_авто_] ID администратора
+    user_id: int = Field(foreign_key="users.id", unique=True)                    # [обязат] ID пользователя (внешний ключ на users)
+
+
+class Student(SQLModel, table=True):
+    """Ученики."""
+    __tablename__ = "students"
+    id: Optional[int] = Field(default=None, primary_key=True)                    # [_авто_] ID ученика
+    user_id: int = Field(foreign_key="users.id", unique=True)                    # [обязат] ID пользователя (внешний ключ на users)
+
+
+class Tutor(SQLModel, table=True):
+    """Репетиторы."""
+    __tablename__ = "tutors"
+    id: Optional[int] = Field(default=None, primary_key=True)                    # [_авто_] ID репетитора
+    user_id: int = Field(foreign_key="users.id", unique=True)                    # [обязат] ID пользователя (внешний ключ на users)
+
+
+# ============================================
+# 3. НАСТРОЙКИ
+# Связи: Student 1→1 StudentSettings
+#        Tutor 1→1 TutorSettings
+# ============================================
+
+class StudentSettings(SQLModel, table=True):
+    """Настройки ученика."""
+    __tablename__ = "student_settings"
+    id: Optional[int] = Field(default=None, primary_key=True)                    # [_авто_] ID настроек
+    student_id: int = Field(foreign_key="students.id", unique=True)              # [обязат] ID ученика (внешний ключ на students)
+
+    status: str = Field(default="ACTIVE", max_length=20)                         # [необяз] Статус активности: active/inactive
+    timezone_offset: int = Field(default=0)                                      # [необяз] Часовой пояс (смещение в часах от UTC)
+    schedule_view: str = Field(default="INFORMATIVE", max_length=20)             # [необяз] Вид расписания: informative/minimalistic
+
+
+class TutorSettings(SQLModel, table=True):
+    """Настройки репетитора."""
+    __tablename__ = "tutor_settings"
+    id: Optional[int] = Field(default=None, primary_key=True)                    # [_авто_] ID настроек
+    tutor_id: int = Field(foreign_key="tutors.id", unique=True)                  # [обязат] ID репетитора (внешний ключ на tutors)
+
+    hourly_rate: float = Field(default=0.0)                                      # [необяз] Стоимость занятия (руб/час)
+    discount: float = Field(default=0.0)                                         # [необяз] Скидка в процентах
+    timezone_offset: int = Field(default=0)                                      # [необяз] Часовой пояс (смещение в часах от UTC)
+    work_status: str = Field(default="WORKING", max_length=20)                   # [необяз] Статус работы: working/not_working
+    schedule_view: str = Field(default="INFORMATIVE", max_length=20)             # [необяз] Вид расписания: informative/minimalistic
+    allow_self_booking: bool = Field(default=True)                               # [необяз] Разрешить самостоятельную запись учеников
+    booking_lead_time_hours: int = Field(default=24)                             # [необяз] Запись возможна за N часов до начала урока
+    cancellation_lead_time_hours: int = Field(default=24)                        # [необяз] Отмена возможна за N часов до начала урока
+    notifications_enabled: bool = Field(default=True)                            # [необяз] Включены ли уведомления
+    notification_lead_time_hours: int = Field(default=24)                        # [необяз] Уведомление за N часов до начала урока
+    default_links: Optional[List[Dict[str, str]]] = Field(default=None, sa_type=JSON)  # [необяз] Ссылки по умолчанию [{"description": "...", "url": "..."}]
+
+
+# ============================================
+# 4. КОНФИГУРАЦИИ (связь ученик-репетитор)
+# Связи: Student 1→N Configuration (один ученик — много конфигураций)
+#        Tutor 1→N Configuration (один репетитор — много конфигураций)
+#        Реализует связь многие-ко-многим между учениками и репетиторами
+# ============================================
+
+class Configuration(SQLModel, table=True):
+    """Конфигурация связи ученик-репетитор."""
+    __tablename__ = "configurations"
+    id: Optional[int] = Field(default=None, primary_key=True)                    # [_авто_] ID конфигурации
+    student_id: int = Field(foreign_key="students.id")                           # [обязат] ID ученика (внешний ключ на students)
+    tutor_id: int = Field(foreign_key="tutors.id")                               # [обязат] ID репетитора (внешний ключ на tutors)
+
+    hourly_rate: float = Field(default=0.0)                                      # [необяз] Стоимость занятия (руб/час)
+    allow_self_booking: bool = Field(default=True)                               # [необяз] Разрешить самостоятельную запись ученика
+    booking_lead_time_hours: int = Field(default=24)                             # [необяз] Запись возможна за N часов до урока
+    cancellation_lead_time_hours: int = Field(default=24)                        # [необяз] Отмена возможна за N часов до урока
+    notifications_enabled: bool = Field(default=True)                            # [необяз] Включены ли уведомления
+    notification_lead_time_hours: int = Field(default=24)                        # [необяз] Уведомление за N часов до урока
+    default_links: Optional[List[Dict[str, str]]] = Field(default=None, sa_type=JSON)  # [необяз] Ссылки для занятий [{"description": "...", "url": "..."}]
+    allow_unpaid_lesson: bool = Field(default=False)                             # [необяз] Разрешить вход на урок без оплаты
+    student_notes: Optional[str] = None                                          # [необяз] Заметки репетитора об ученике
+
+    class Config:
+        __table_args__ = (
+            UniqueConstraint("student_id", "tutor_id", name="uq_student_tutor"),
+        )
+
+
+# ============================================
+# 5. БРОНИ (ПОВТОРЯЮЩИЕСЯ БЛОКИРОВКИ ВРЕМЕНИ)
+# Связи: Tutor 1→N Booking (один репетитор — много броней)
+# ============================================
+
+class Booking(SQLModel, table=True):
+    """Бронь — повторяющаяся блокировка времени репетитора."""
+    __tablename__ = "bookings"
+    id: Optional[int] = Field(default=None, primary_key=True)                    # [_авто_] ID брони
+    created_at: Optional[datetime] = Field(default_factory=datetime.now)         # [_авто_] Дата и время создания
+    updated_at: Optional[datetime] = Field(default_factory=datetime.now)         # [_авто_] Дата и время обновления
+
+    tutor_id: int = Field(foreign_key="tutors.id")                               # [обязат] ID репетитора (внешний ключ на tutors)
+    weekday: str = Field(max_length=20)                                          # [обязат] День недели
+    start_time: time                                                             # [обязат] Время начала
+    end_time: time                                                               # [обязат] Время окончания
+
+    access_rule: str = Field(default="EVERYONE", max_length=20)                  # [необяз] Правило доступа: nobody/all_except/only/everyone
+    access_targets: Optional[List[int]] = Field(default=None, sa_type=JSON)      # [необяз] Список ID учеников: для 'only' — разрешённые, для 'all_except' — исключённые
+    booking_metadata: Optional[Dict[str, Any]] = Field(default=None, sa_type=JSON)  # [необяз] Дополнительные данные
+
+
+# ============================================
+# 6. УРОКИ
+# Связи: Tutor 1→N Lesson (один репетитор — много уроков)
+#        Lesson 1→N LessonParticipant (один урок — много участников)
+#        Student 1→N LessonParticipant (один ученик — много участий)
+# ============================================
+
+class Lesson(SQLModel, table=True):
+    """Уроки."""
+    __tablename__ = "lessons"
+    id: Optional[int] = Field(default=None, primary_key=True)                    # [_авто_] ID урока
+    created_at: Optional[datetime] = Field(default_factory=datetime.now)         # [_авто_] Дата и время создания
+    updated_at: Optional[datetime] = Field(default_factory=datetime.now)         # [_авто_] Дата и время обновления
+
+    tutor_id: int = Field(foreign_key="tutors.id")                               # [обязат] ID репетитора (внешний ключ на tutors)
+    start_time: datetime                                                         # [обязат] Время начала
+    end_time: datetime                                                           # [обязат] Время окончания
+    created_by_id: int                                                           # [обязат] ID создателя (student.id или tutor.id)
+
+    is_group: bool = Field(default=False)                                        # [необяз] Групповой ли урок
+    lesson_settings: Optional[Dict[str, Any]] = Field(default=None, sa_type=JSON)  # [необяз] Настройки урока
+    lesson_links: Optional[List[Dict[str, str]]] = Field(default=None, sa_type=JSON)  # [необяз] Ссылки для занятий [{"description": "...", "url": "..."}]
+    lesson_metadata: Optional[Dict[str, Any]] = Field(default=None, sa_type=JSON)  # [необяз] Дополнительные данные
+    lesson_descriptions: Optional[str] = None                                    # [необяз] Описание урока
+
+
+class LessonParticipant(SQLModel, table=True):
+    """Участники урока."""
+    __tablename__ = "lesson_participants"
+    id: Optional[int] = Field(default=None, primary_key=True)                    # [_авто_] ID записи
+    created_at: Optional[datetime] = Field(default_factory=datetime.now)         # [_авто_] Дата и время создания
+    updated_at: Optional[datetime] = Field(default_factory=datetime.now)         # [_авто_] Дата и время обновления
+
+    lesson_id: int = Field(foreign_key="lessons.id")                             # [обязат] ID урока (внешний ключ на lessons)
+    student_id: int = Field(foreign_key="students.id")                           # [обязат] ID ученика (внешний ключ на students)
+
+    participant_settings: Optional[Dict[str, Any]] = Field(default=None, sa_type=JSON)  # [необяз] Индивидуальные настройки участника
+    participant_metadata: Optional[Dict[str, Any]] = Field(default=None, sa_type=JSON)  # [необяз] Дополнительные данные
+
+    class Config:
+        __table_args__ = (
+            UniqueConstraint("lesson_id", "student_id", name="uq_lesson_participant"),
+        )
+
+
+# ============================================
+# 7. ТЕСТОВЫЕ МОДЕЛИ
+# ============================================
+
+class DemoUser(SQLModel, table=True):
+    """Тестовый пользователь (для отладки CRUD)."""
+    __tablename__ = "demo_users"
+    id: Optional[int] = Field(default=None, primary_key=True)                    # [_авто_] ID
+    name: str = Field(max_length=255)                                            # [обязат] Имя
+    age: int                                                                     # [обязат] Возраст
+    email: str = Field(max_length=255, unique=True)                              # [обязат] Электронная почта (уникальная)
+
+
+class DemoProduct(SQLModel, table=True):
+    """Тестовый продукт (для отладки CRUD)."""
+    __tablename__ = "demo_products"
+    id: Optional[int] = Field(default=None, primary_key=True)                    # [_авто_] ID
+    name: str = Field(max_length=255)                                            # [обязат] Название
+    price: float                                                                 # [обязат] Цена
+    quantity: int                                                                # [обязат] Количество
+
+
+class model_test(SQLModel, table=True):
+    """Тестовая модель для нагрузочных тестов."""
+    __tablename__ = "model_test"
+    id: Optional[int] = Field(default=None, primary_key=True)                    # [_авто_] ID
+    val: int = Field(default=0)                                                  # [необяз] Значение
+    name: str = Field(default="")                                                # [необяз] Имя
+
+
+# ============================================
+# 8. АВТОСБОР СХЕМ
+# ============================================
+
+def get_all_schemas():
+    """Автоматически собирает все SQLModel-таблицы из текущего модуля."""
+    import sys
+    module = sys.modules[__name__]
+    schemas = {}
+    for attr_name in dir(module):
+        attr = getattr(module, attr_name)
+        if (
+            isinstance(attr, type) and
+            issubclass(attr, SQLModel) and
+            attr != SQLModel and
+            hasattr(attr, '__table__')
+        ):
+            schemas[attr.__tablename__] = attr
+    return schemas
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\pyproject.toml
+Содержимое:
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "event-infra"
+version = "0.1.0"
+description = "Инфраструктурный слой: миграции, event router, мониторинг"
+requires-python = ">=3.8"
+dependencies = [
+    "sqlalchemy>=2.0",
+    "sqlmodel>=0.0.14",
+    "alembic>=1.10",
+    "asyncpg>=0.28",
+    "psycopg2-binary>=2.9",
+    "httpx>=0.24",
+]
+
+[project.scripts]
+infra-init = "infrastructure.cli:init"
+infra-monitor = "infrastructure.cli:monitor"
+
+[tool.setuptools.package-data]
+infrastructure = [
+    "templates/*",
+    "templates/env_template.txt",
+    "db_migrator/alembic/*",
+    "db_migrator/alembic/versions/*",
+]
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\README.md
+Содержимое:
+# event-infra
+
+Инфраструктурный слой для проектов на PostgreSQL + SQLModel.  
+Поставляется как устанавливаемый Python-пакет. Включает:
+
+- Миграции (на основе Alembic)
+- Асинхронный EventRouter с пулами соединений, очередями и универсальным CRUD
+- Мониторинг в реальном времени
+- Полный сброс базы данных и миграций
+
+## Установка
+
+```bash
+pip install git+https://github.com/ваш-username/ваш-репозиторий.git
+Все зависимости (SQLAlchemy, SQLModel, Alembic, asyncpg, psycopg2-binary, httpx) установятся автоматически.
+
+Инициализация проекта
+Перейдите в пустую папку вашего будущего проекта и выполните:
+
+bash
+infra-init
+Будут созданы три файла:
+
+models.py – шаблон SQLModel-моделей (источник истины для схемы БД)
+
+run_infrastructure.py – скрипт запуска инфраструктуры (миграции + EventRouter + метрики)
+
+.env – файл с настройками подключения и параметрами (с русскими комментариями)
+
+При повторном запуске используйте флаг --force для перезаписи.
+
+Настройка
+Отредактируйте .env, указав как минимум:
+
+env
+DB_URL=postgresql://user:pass@localhost:5432/your_db
+DB_URL_ASYNC=postgresql+asyncpg://user:pass@localhost:5432/your_db
+Остальные параметры (размеры пулов, таймауты, кеш) можно оставить по умолчанию или изменить под свои нужды.
+
+Запуск инфраструктуры
+bash
+python run_infrastructure.py
+Скрипт:
+
+Проверяет наличие изменений в моделях и применяет миграции (если есть)
+
+Запускает EventRouter с настройками из .env
+
+Выводит в консоль метрики (обновляются каждую секунду)
+
+Остановка – Ctrl+C. При завершении все пулы соединений закрываются корректно.
+
+Мониторинг (отдельная команда)
+Если инфраструктура уже запущена (например, на другом сервере), можно подключиться к её API и наблюдать за статистикой:
+
+bash
+infra-monitor [интервал_в_секундах]
+По умолчанию интервал 0.5 с. Мониторинг обращается к эндпоинтам /system/stats и /system/scenario-metrics (подразумевается, что ваш сервис их предоставляет).
+
+Сброс (полная очистка)
+Удаляет все файлы миграций (alembic/versions/*.py), кеш Python и все таблицы в публичной схеме БД.
+
+bash
+infra-reset postgresql://user:pass@localhost:5432/your_db
+Если ваша папка alembic находится не в текущей директории, укажите её явно:
+
+bash
+infra-reset postgresql://... --alembic-dir ./path/to/alembic
+После сброса можно запустить run_infrastructure.py заново – миграции будут созданы с нуля.
+
+Структура пакета (для разработчиков)
+text
+event-infra/
+├── infrastructure/
+│   ├── __init__.py
+│   ├── cli.py                  # точки входа команд
+│   ├── config_loader.py        # загрузка .env
+│   ├── monitor.py              # мониторинг
+│   ├── templates/              # шаблоны для infra-init
+│   ├── db_migrator/            # утилита миграций
+│   └── event_infrastructure/   # ядро (пулы, очереди, CRUD)
+├── pyproject.toml
+└── README.md
+Требования
+Python 3.8+
+
+PostgreSQL (9.6+)
+
+Установленный пакет (см. раздел «Установка»)
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\cli.py
+Содержимое:
+import argparse
+import asyncio
+import sys
+from pathlib import Path
+from importlib import resources
+
+
+def _copy_template(template_name: str, dest: Path, force: bool = False) -> bool:
+    if dest.exists() and not force:
+        print(f"Файл {dest} уже существует. Используйте --force для перезаписи.")
+        return False
+    content = resources.files("infrastructure.templates").joinpath(template_name).read_text(encoding="utf-8")
+    dest.write_text(content, encoding="utf-8")
+    print(f"Создан: {dest}")
+    return True
+
+
+def init():
+    parser = argparse.ArgumentParser(description="Инициализация инфраструктурного слоя в текущей директории")
+    parser.add_argument("--force", action="store_true", help="Перезаписать существующие файлы")
+    args = parser.parse_args()
+
+    cwd = Path.cwd()
+    ok1 = _copy_template("models_template.py", cwd / "models.py", args.force)
+    ok2 = _copy_template("run_infrastructure_template.py", cwd / "run_infrastructure.py", args.force)
+    ok3 = _copy_template("env_template.txt", cwd / ".env", args.force)
+
+    if ok1 and ok2 and ok3:
+        print("\nГотово. Теперь можно запустить инфраструктуру: python run_infrastructure.py")
+    else:
+        print("\nИнициализация завершена с предупреждениями.")
+
+
+def reset():
+    from infrastructure.db_migrator.reset import reset as reset_db
+    parser = argparse.ArgumentParser(description="Полный сброс БД и миграций")
+    parser.add_argument("db_url", help="Строка подключения к БД")
+    parser.add_argument("--alembic-dir", default=None, help="Путь к папке alembic (по умолчанию ./alembic)")
+    args = parser.parse_args()
+
+    success = reset_db(args.db_url, args.alembic_dir)
+    sys.exit(0 if success else 1)
+
+
+def monitor():
+    from infrastructure.monitor import monitor as _monitor
+    interval = float(sys.argv[1]) if len(sys.argv) > 1 else 0.5
+    try:
+        asyncio.run(_monitor(interval))
+    except KeyboardInterrupt:
+        print("\nStopped.")
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\config_loader.py
+Содержимое:
+"""Утилита загрузки переменных из .env файла."""
+
+import os
+from pathlib import Path
+
+
+def load_dotenv(path: str = ".env") -> None:
+    """Читает файл .env и добавляет переменные в os.environ, если их там нет.
+
+    Формат файла: КЛЮЧ=ЗНАЧЕНИЕ (одно на строку). Пустые строки и строки с '#' игнорируются.
+    Существующие переменные окружения не перезаписываются.
+    """
+    env_path = Path(path)
+    if not env_path.exists():
+        return
+
+    with env_path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip()
+            if key and key not in os.environ:
+                os.environ[key] = value
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\monitor.py
+Содержимое:
+"""Мониторинг статистики инфраструктуры и сценариев в реальном времени.
+
+Использование:
+    python monitor.py                # обновление каждые 0.5 секунды
+    python monitor.py 1.0            # обновление каждую секунду
+    python monitor.py 0.25           # обновление 4 раза в секунду
+
+Остановка: Ctrl+C
+"""
+
+import sys
+import os
+import asyncio
+import httpx
+
+
+BASE_URL = os.getenv("API_URL", "http://localhost:8000")
+INFRA_ENDPOINT = "/system/stats"
+SCENARIO_ENDPOINT = "/system/scenario-metrics"
+
+
+def clear_screen():
+    os.system("cls" if os.name == "nt" else "clear")
+
+
+def format_duration(seconds: float) -> str:
+    if seconds < 60:
+        return f"{seconds:.0f}s"
+    minutes = int(seconds // 60)
+    secs = int(seconds % 60)
+    hours = minutes // 60
+    minutes = minutes % 60
+    if hours:
+        return f"{hours}h {minutes}m {secs}s"
+    return f"{minutes}m {secs}s"
+
+
+def print_infra_stats(stats: dict, interval: float):
+    uptime = format_duration(stats["uptime_seconds"])
+
+    print("=" * 70)
+    print(f"  EVENT INFRASTRUCTURE MONITOR")
+    print(f"  Uptime: {uptime}  |  Interval: {interval}s  |  Ctrl+C to stop")
+    print("=" * 70)
+    print()
+    print(f"  TOTAL PROCESSED: {stats['total_processed']:<8}  "
+          f"FAILED: {stats['total_failed']:<6}  "
+          f"QUEUED: {stats['total_queued']:<6}  "
+          f"CACHE: {stats['cache_size']}")
+    print(f"  ACCEPTING TASKS: {'YES' if stats['is_accepting'] else 'NO'}")
+    print()
+    print(f"  {'CHANNEL':<10} {'WORKERS':<10} {'POOL':<8} {'QUEUE':<8} "
+          f"{'PROCESSED':<12} {'FAILED':<8} {'AVG TIME':<10}")
+    print(f"  {'-'*10} {'-'*10} {'-'*8} {'-'*8} {'-'*12} {'-'*8} {'-'*10}")
+
+    for name, ch in stats["channels"].items():
+        workers = f"{ch['active_workers']}/{ch['pool_size']}"
+        queue = f"{ch['queue_size']}"
+        avg = f"{ch['avg_time_ms']:.1f}ms"
+        print(f"  {name:<10} {workers:<10} {ch['pool_size']:<8} "
+              f"{queue:<8} {ch['tasks_processed']:<12} {ch['tasks_failed']:<8} {avg:<10}")
+
+    print()
+
+
+def print_scenario_stats(data: dict):
+    scenarios = data.get("scenarios", [])
+    if not scenarios:
+        print("=" * 70)
+        print(f"  CORE SCENARIO METRICS — no data yet")
+        print("=" * 70)
+        return
+
+    print("=" * 70)
+    print(f"  CORE SCENARIO METRICS")
+    print("=" * 70)
+    print(f"  {'SCENARIO':<30} {'CALLS':>6} {'AVG':>8} {'MIN':>8} {'MAX':>8} {'ERR':>5}  ERROR CODES")
+    print(f"  {'-'*30} {'-'*6} {'-'*8} {'-'*8} {'-'*8} {'-'*5}  {'-'*30}")
+
+    for s in scenarios:
+        codes_str = ", ".join(f"{k}:{v}" for k, v in s.get("error_codes", {}).items())
+        print(f"  {s['scenario']:<30} {s['calls']:>6} {s['avg_ms']:>7.1f}ms {s['min_ms']:>7.1f}ms {s['max_ms']:>7.1f}ms {s['errors']:>5}  {codes_str}")
+
+    total_calls = sum(s['calls'] for s in scenarios)
+    total_errors = sum(s['errors'] for s in scenarios)
+    print(f"  {'-'*30} {'-'*6} {'-'*8} {'-'*8} {'-'*8} {'-'*5}")
+    print(f"  {'TOTAL':<30} {total_calls:>6} {'':>8} {'':>8} {'':>8} {total_errors:>5}")
+    print("=" * 70)
+
+
+async def monitor(interval: float = 0.5):
+    async with httpx.AsyncClient(base_url=BASE_URL, timeout=5.0) as client:
+        while True:
+            try:
+                infra_resp = await client.get(INFRA_ENDPOINT)
+                scenario_resp = await client.get(SCENARIO_ENDPOINT)
+
+                if infra_resp.status_code == 200:
+                    clear_screen()
+                    print_infra_stats(infra_resp.json(), interval)
+
+                    if scenario_resp.status_code == 200:
+                        print_scenario_stats(scenario_resp.json())
+                else:
+                    print(f"Error: {infra_resp.status_code}")
+            except httpx.ConnectError:
+                print(f"Waiting for server at {BASE_URL}...")
+            except KeyboardInterrupt:
+                break
+            except Exception as e:
+                print(f"Error: {e}")
+
+            await asyncio.sleep(interval)
+
+
+if __name__ == "__main__":
+    interval = float(sys.argv[1]) if len(sys.argv) > 1 else 0.5
+    try:
+        asyncio.run(monitor(interval))
+    except KeyboardInterrupt:
+        print("\nStopped.")
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\README.md
+Содержимое:
+```markdown
+## CRUD: важные особенности
+
+### Поля с `default=None` исключаются из INSERT
+
+`_detect_exclude_fields()` добавляет в `exclude_from_insert` все поля, у которых `default=None`. Они не попадают в `INSERT` через `router.create()`.
+
+**Обход:** не передавать `None` в `data`, либо использовать `router.custom()` с прямым SQL.
+
+### JSON-поля через `router.custom()` требуют `json.dumps`
+
+```python
+await router.custom(
+    "INSERT INTO t (data) VALUES (:d)",
+    {"d": json.dumps([1, 2])},
+    channel="write"
+)
+```
+
+### `asyncpg.Row` — не словарь
+
+`custom()` возвращает `[{"row": <asyncpg.Row>}]`. Для доступа по имени колонки:
+
+```python
+row = result.data[0]["row"]
+d = dict(row._mapping)
+```
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\__init__.py
+Содержимое:
+"""Инфраструктурный слой проекта.
+
+Содержит независимые блоки:
+- db_migrator — утилита миграций PostgreSQL
+- event_infrastructure — асинхронная инфраструктура (пулы, очереди, CRUD)
+- tests — тесты всех компонентов
+
+у каждого блока (кроме тестов) есть свой README.md
+"""
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\db_migrator\alembic.ini
+Содержимое:
+
+[alembic]
+
+script_location = alembic 
+
+prepend_sys_path = .
+
+path_separator = os
+
+sqlalchemy.url = driver://user:pass@localhost/dbname
+
+
+[post_write_hooks]
+
+[loggers]
+keys = root,sqlalchemy,alembic
+
+[handlers]
+keys = console
+
+[formatters]
+keys = generic
+
+[logger_root]
+level = WARNING
+handlers = console
+qualname =
+
+[logger_sqlalchemy]
+level = WARNING
+handlers =
+qualname = sqlalchemy.engine
+
+[logger_alembic]
+level = INFO
+handlers =
+qualname = alembic
+
+[handler_console]
+class = StreamHandler
+args = (sys.stderr,)
+level = NOTSET
+formatter = generic
+
+[formatter_generic]
+format = %(levelname)-5.5s [%(name)s] %(message)s
+datefmt = %H:%M:%S
+
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\db_migrator\core.py
+Содержимое:
+import importlib.util
+import sys
+import shutil
+from pathlib import Path
+from importlib import resources
+from alembic.config import Config
+from alembic import command
+from alembic.autogenerate import compare_metadata
+from alembic.runtime.migration import MigrationContext
+from sqlalchemy import create_engine
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+def load_models(schema_path: str):
+    """Загружает модуль с моделями, если ещё не загружен."""
+    path = Path(schema_path).resolve()
+    module_name = path.stem
+
+    if module_name in sys.modules:
+        module = sys.modules[module_name]
+        if hasattr(module, 'metadata'):
+            logger.info(f"Модуль {module_name} уже загружен, таблицы: {', '.join(module.metadata.tables.keys())}")
+            return module
+
+    if str(path.parent) not in sys.path:
+        sys.path.insert(0, str(path.parent))
+
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+
+    if not hasattr(module, 'metadata'):
+        raise AttributeError("Добавьте 'metadata = SQLModel.metadata' в models.py")
+
+    logger.info(f"Загружены таблицы: {', '.join(module.metadata.tables.keys())}")
+    return module
+
+
+def _ensure_alembic_dir(schema_path: str) -> Path:
+    """Определяет или создаёт папку alembic рядом с models.py."""
+    schema_path = Path(schema_path).resolve()
+    alembic_dir = schema_path.parent / "alembic"
+    if not alembic_dir.exists():
+        logger.info(f"Папка alembic не найдена рядом с {schema_path}. Создаю из шаблона...")
+        template_dir = resources.files("infrastructure.db_migrator").joinpath("alembic")
+        shutil.copytree(template_dir, alembic_dir)
+        # Удаляем __pycache__, если он попал
+        pycache = alembic_dir / "__pycache__"
+        if pycache.exists():
+            shutil.rmtree(pycache)
+    return alembic_dir
+
+
+def run_migration(db_url: str, schema_path: str, alembic_dir: str = None) -> bool:
+    """
+    Основная функция миграции.
+    Если alembic_dir не указан, будет использована/создана папка alembic рядом с models.py.
+    Возвращает True если миграция прошла успешно или изменений нет.
+    Возвращает False если произошла ошибка.
+    """
+    try:
+        module = load_models(schema_path)
+
+        if alembic_dir is None:
+            alembic_dir = _ensure_alembic_dir(schema_path)
+        else:
+            alembic_dir = Path(alembic_dir)
+
+        # Используем Config без ini-файла, задаём параметры напрямую
+        alembic_cfg = Config()
+        alembic_cfg.set_main_option("script_location", str(alembic_dir))
+        alembic_cfg.set_main_option("sqlalchemy.url", db_url)
+
+        engine = create_engine(db_url)
+        with engine.connect() as conn:
+            mc = MigrationContext.configure(conn)
+            diff = compare_metadata(mc, module.metadata)
+        engine.dispose()
+
+        if not diff:
+            logger.info("Схема актуальна, изменений нет")
+            return True
+
+        logger.info("Обнаружены изменения в схеме, создаём миграцию...")
+        command.revision(alembic_cfg, autogenerate=True, message="auto")
+        command.upgrade(alembic_cfg, "head")
+        logger.info("Миграция успешно применена")
+        return True
+
+    except Exception as e:
+        logger.error(f"Ошибка миграции: {e}")
+        return False
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\db_migrator\README.md
+Содержимое:
+## `db_migrator/README.md`
+
+```markdown
+# db_migrator
+
+Автономная утилита миграций PostgreSQL. Сравнивает SQLModel-модели с реальной БД и применяет изменения.
+
+## Требования
+
+- Python 3.8+
+- PostgreSQL
+- Зависимости: `alembic`, `sqlalchemy`, `sqlmodel`, `psycopg2-binary`
+
+```bash
+pip install alembic sqlalchemy sqlmodel psycopg2-binary
+```
+
+## Внедрение в проект
+
+1. Скопировать папку `db_migrator` в любое место проекта
+2. Импортировать с учётом расположения:
+
+```python
+# если db_migrator в корне:
+from db_migrator import run_migration
+
+# если в подпапке:
+from libs.db_migrator import run_migration
+```
+
+## Файл моделей
+
+Единственный источник истины о схеме БД. Обязательно экспортировать `metadata`:
+
+```python
+from sqlmodel import SQLModel, Field
+
+metadata = SQLModel.metadata
+
+class User(SQLModel, table=True):
+    id: int = Field(default=None, primary_key=True)
+    name: str
+    email: str = Field(unique=True)
+```
+
+## Использование
+
+### Запуск миграции
+
+```python
+from db_migrator import run_migration
+
+success = run_migration(
+    db_url="postgresql://user:pass@localhost:5432/dbname",
+    schema_path="./models.py"
+)
+```
+
+- Есть изменения в моделях → создаст и применит миграцию
+- Нет изменений → ничего не делает
+- Возвращает `True` при успехе, `False` при ошибке
+
+### Полный сброс
+
+Удаляет все миграции, кеш и очищает БД:
+
+```bash
+python -m db_migrator.reset postgresql://user:pass@localhost:5432/dbname
+```
+
+## Перенос между проектами
+
+Скопировать папку `db_migrator` в новый проект. Установить зависимости. Готово.
+
+Если нужна чистая история — удалить старые миграции перед переносом:
+
+```bash
+rm db_migrator/alembic/versions/*.py
+rm -rf db_migrator/alembic/versions/__pycache__
+```
+```
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\db_migrator\reset.py
+Содержимое:
+"""
+Скрипт полного сброса: удаляет все миграции, кеш и очищает БД.
+Ожидает, что в текущей директории есть папка alembic (создаётся infra-init).
+"""
+
+import sys
+import os
+import shutil
+from pathlib import Path
+from sqlalchemy import create_engine, text
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+def reset(db_url: str, alembic_dir: str = None):
+    """
+    Полный сброс утилиты и базы данных.
+
+    Args:
+        db_url: строка подключения к БД
+        alembic_dir: путь к папке alembic (если None, ищет ./alembic)
+    """
+    if alembic_dir is None:
+        alembic_dir = Path.cwd() / "alembic"
+    else:
+        alembic_dir = Path(alembic_dir)
+
+    if not alembic_dir.exists():
+        logger.error(f"Папка alembic не найдена: {alembic_dir}")
+        logger.error("Сначала выполните infra-init в корне проекта")
+        return False
+
+    versions_dir = alembic_dir / "versions"
+
+    # 1. Удаляем файлы миграций и __pycache__
+    if versions_dir.exists():
+        for f in versions_dir.glob("*.py"):
+            if f.name != "__init__.py":
+                f.unlink()
+                logger.info(f"Удалён файл миграции: {f.name}")
+        pycache = versions_dir / "__pycache__"
+        if pycache.exists():
+            shutil.rmtree(pycache)
+            logger.info("Удалён __pycache__ в versions")
+    else:
+        logger.warning("Папка versions не найдена, пропускаем")
+
+    # 2. Удаляем __pycache__ в корне alembic
+    pycache_root = alembic_dir / "__pycache__"
+    if pycache_root.exists():
+        shutil.rmtree(pycache_root)
+        logger.info("Удалён __pycache__ в alembic")
+
+    # 3. Очищаем кеш модулей (если они загружены)
+    modules_to_remove = [name for name in sys.modules if 'models' in name.lower() or 'alembic' in name.lower()]
+    for module_name in modules_to_remove:
+        if module_name in sys.modules:
+            del sys.modules[module_name]
+            logger.info(f"Модуль {module_name} удалён из sys.modules")
+
+    # 4. Очищаем БД
+    try:
+        engine = create_engine(db_url)
+        with engine.connect() as conn:
+            conn.execute(text("SET session_replication_role = 'replica'"))
+            conn.commit()
+
+            result = conn.execute(text("""
+                SELECT tablename FROM pg_tables
+                WHERE schemaname = 'public'
+            """))
+            tables = [row[0] for row in result]
+
+            for table in tables:
+                conn.execute(text(f'DROP TABLE IF EXISTS "{table}" CASCADE'))
+                logger.info(f"Удалена таблица: {table}")
+
+            conn.commit()
+            logger.info("База данных очищена")
+    except Exception as e:
+        logger.error(f"Ошибка при очистке БД: {e}")
+        return False
+
+    logger.info("Сброс выполнен успешно")
+    return True
+
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Использование: python -m infrastructure.db_migrator.reset postgresql://user:pass@localhost:5432/dbname")
+        sys.exit(1)
+
+    db_url = sys.argv[1]
+    # Можно передать второй аргумент – путь к alembic (по умолчанию ./alembic)
+    alembic_dir = sys.argv[2] if len(sys.argv) > 2 else None
+    success = reset(db_url, alembic_dir)
+    sys.exit(0 if success else 1)
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\db_migrator\__init__.py
+Содержимое:
+from .core import run_migration
+__all__ = ["run_migration"]
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\db_migrator\alembic\env.py
+Содержимое:
+from logging.config import fileConfig
+from sqlalchemy import engine_from_config, pool
+from alembic import context
+
+config = context.config
+
+if config.config_file_name is not None:
+    fileConfig(config.config_file_name)
+
+# Ищем metadata в загруженных модулях
+import sys
+target_metadata = None
+for module in sys.modules.values():
+    if hasattr(module, 'metadata') and hasattr(module.metadata, 'tables'):
+        target_metadata = module.metadata
+        break
+
+def run_migrations_offline():
+    url = config.get_main_option("sqlalchemy.url")
+    context.configure(
+        url=url,
+        target_metadata=target_metadata,
+        literal_binds=True,
+        compare_type=False,       # Не сравниваем типы
+        compare_server_default=True,
+    )
+    with context.begin_transaction():
+        context.run_migrations()
+
+def run_migrations_online():
+    connectable = engine_from_config(
+        config.get_section(config.config_ini_section, {}),
+        prefix="sqlalchemy.",
+        poolclass=pool.NullPool,
+    )
+    with connectable.connect() as connection:
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            compare_type=False,       # Не сравниваем типы
+            compare_server_default=True,
+        )
+        with context.begin_transaction():
+            context.run_migrations()
+
+if context.is_offline_mode():
+    run_migrations_offline()
+else:
+    run_migrations_online()
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\db_migrator\alembic\script.py.mako
+Содержимое:
+"""${message}
+
+Revision ID: ${up_revision}
+Revises: ${down_revision | comma,n}
+Create Date: ${create_date}
+
+"""
+from typing import Sequence, Union
+
+from alembic import op
+import sqlalchemy as sa
+import sqlmodel
+${imports if imports else ""}
+
+# revision identifiers, used by Alembic.
+revision: str = ${repr(up_revision)}
+down_revision: Union[str, Sequence[str], None] = ${repr(down_revision)}
+branch_labels: Union[str, Sequence[str], None] = ${repr(branch_labels)}
+depends_on: Union[str, Sequence[str], None] = ${repr(depends_on)}
+
+
+def upgrade() -> None:
+    """Upgrade schema."""
+    ${upgrades if upgrades else "pass"}
+
+
+def downgrade() -> None:
+    """Downgrade schema."""
+    ${downgrades if downgrades else "pass"}
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\db_migrator\alembic\versions\__init__.py
+Содержимое:
+
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\event_infrastructure\pipeline.py
+Содержимое:
+"""Точка сборки всей инфраструктуры."""
+
+from .config.models import PipelineConfig, ChannelConfig, RetryConfig, CacheConfig
+from .db.orchestrator import Orchestrator
+from .router.router import EventRouter
+
+
+async def create_pipeline(
+    db_url: str,
+    channels: dict[str, ChannelConfig] = None,
+    schemas: dict = None,
+    exclude_tables: set[str] = None,
+    **kwargs,
+) -> EventRouter:
+    """Создаёт и запускает pipeline.
+    
+    Args:
+        db_url: Строка подключения (postgresql+asyncpg://user:pass@host:port/db)
+        channels: {"read": ChannelConfig(...), "write": ChannelConfig(...), ...}
+        schemas: {"user": User, "post": Post, ...} — SQLModel схемы
+        exclude_tables: Таблицы которые нужно игнорировать (например alembic_version)
+        **kwargs: pool_recycle, pool_pre_ping, pool_timeout,
+                  default_timeout, metrics_enabled, max_concurrency,
+                  retry (RetryConfig), shutdown_timeout
+    """
+    config = PipelineConfig(
+        db_url=db_url,
+        channels=channels or {},
+        **{k: v for k, v in kwargs.items() if hasattr(PipelineConfig, k)},
+    )
+    
+    orchestrator = Orchestrator(config)
+    await orchestrator.start()
+    
+    router = EventRouter(
+        orchestrator=orchestrator,
+        schemas=schemas or {},
+        exclude_tables=exclude_tables,
+        default_timeout=config.default_timeout,
+        metrics_enabled=config.metrics_enabled,
+        max_concurrency=config.max_concurrency,
+        retry=kwargs.get("retry", config.retry),
+        cache=kwargs.get("cache", config.cache),
+    )
+    
+    return router
+
+
+async def shutdown_pipeline(router: EventRouter, timeout: float = None):
+    """Graceful shutdown pipeline."""
+    await router.shutdown(timeout)
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\event_infrastructure\README.md
+Содержимое:
+```markdown
+# event_infrastructure
+
+Асинхронная инфраструктура для PostgreSQL. Пулы соединений, очереди задач, универсальный CRUD на основе SQLModel-схем.
+
+## Архитектура
+
+```
+config/models.py       PipelineConfig, ChannelConfig, RetryConfig
+db/
+  pools.py             PoolManager — пулы соединений (asyncpg)
+  queues.py            QueueManager — очереди asyncio.Queue + SQLTask
+  dispatcher.py        Dispatcher — N корутин-обработчиков на канал
+  orchestrator.py      Orchestrator — фасад над pools/queues/dispatchers
+  models.py            TaskResult, ChannelMetrics, InfrastructureMetrics
+router/
+  router.py            EventRouter — единый публичный интерфейс
+  response.py          Response, ErrorInfo, MetaInfo
+  operations/          CreateOp, ReadOp, UpdateOp, DeleteOp, CustomOp
+  schemas/             EntitySchema, EntityRegistry
+pipeline.py            create_pipeline(), shutdown_pipeline()
+```
+
+## Установка
+
+```bash
+pip install sqlalchemy asyncpg sqlmodel
+```
+
+## Использование
+
+### Создание pipeline
+
+```python
+from event_infrastructure import create_pipeline, shutdown_pipeline
+from event_infrastructure.config import ChannelConfig, RetryConfig
+
+router = await create_pipeline(
+    db_url="postgresql+asyncpg://user:pass@localhost:5432/db",
+    channels={
+        "read": ChannelConfig(pool_size=20, max_overflow=10, queue_maxsize=500),
+        "write": ChannelConfig(pool_size=10, max_overflow=5, queue_maxsize=200),
+        "admin": ChannelConfig(pool_size=2, max_overflow=0, queue_maxsize=50),
+    },
+    schemas={"user": User, "post": Post},
+    exclude_tables={"alembic_version"},
+    pool_timeout=30,
+    default_timeout=30.0,
+    max_concurrency=100,
+    retry=RetryConfig(max_retries=3, delay_seconds=0.5, backoff_multiplier=2.0),
+    shutdown_timeout=10.0,
+)
+```
+
+### CRUD
+
+```python
+result = await router.create("user", {"name": "Alice", "email": "a@mail.com", "age": 25}, channel="write")
+result = await router.read("user", 1, channel="read")
+result = await router.update("user", 1, {"age": 26}, channel="write")
+result = await router.delete("user", 1, channel="write")
+```
+
+Канал указывается явно. По умолчанию: `create/update/delete` → `"write"`, `read` → `"read"`.
+
+### Произвольный SQL
+
+```python
+result = await router.execute("read", "SELECT * FROM \"user\" WHERE age > :min", {"min": 18})
+result = await router.custom("SELECT COUNT(*) FROM \"user\"", channel="read")
+```
+
+`execute()` и `custom()` отличаются только реализацией — оба выполняют SQL в указанном канале, оба возвращают Response.
+
+### Повторные попытки (retry)
+
+Глобально при создании:
+
+```python
+router = await create_pipeline(..., retry=RetryConfig(max_retries=5, delay_seconds=1.0))
+```
+
+Per-call (переопределяет глобальный):
+
+```python
+result = await router.create("user", data, retry=RetryConfig(max_retries=2))
+result = await router.read("user", 1, retry=RetryConfig(max_retries=0))  # без ретраев
+```
+
+Ретраятся: `connection refused`, `timeout`, `deadlock`, `serialization error`, `server closed`. Не ретраятся: ошибки валидации, синтаксиса, уникальности.
+
+### Health Check
+
+```python
+alive = await router.is_alive()           # bool
+health = await router.health_check()      # dict
+```
+
+`health_check()` возвращает:
+```python
+{
+    "alive": True,
+    "db_connected": True,
+    "uptime_seconds": 120.5,
+    "channels": {
+        "read": {"active_workers": 20, "pool_size": 20, "queue_size": 0},
+        ...
+    },
+    "error": None
+}
+```
+
+### Метрики
+
+```python
+router.print_metrics(full=True)   # полные: с детализацией по каналам
+router.print_metrics(full=False)  # минимальные: uptime, processed, failed
+metrics = router.get_metrics()    # InfrastructureMetrics dataclass
+```
+
+### Shutdown
+
+```python
+await shutdown_pipeline(router, timeout=10.0)
+```
+
+Порядок: прекращается приём новых задач → pending задачи дорабатываются → закрываются все пулы.
+
+## Response
+
+Все методы возвращают Response:
+```python
+{
+    "success": True,
+    "data": [{"id": 1, "name": "Alice"}],
+    "count": 1,
+    "error": None,
+    "meta": {
+        "entity": "user",
+        "operation": "create",
+        "affected_rows": 1,
+        "execution_time_ms": 1.2,
+        "retries": 0
+    }
+}
+```
+
+При ошибке: `success=False`, `data=None`, `error={"code": 100, "message": "..."}`.
+
+## Конфигурация
+
+### ChannelConfig
+
+| Параметр | Тип | По умолчанию | Описание |
+|----------|-----|-------------|----------|
+| pool_size | int | 10 | Базовый размер пула |
+| max_overflow | int | 5 | Доп. соединения при пике |
+| queue_maxsize | int | 1000 | Макс. размер очереди задач |
+
+### RetryConfig
+
+| Параметр | Тип | По умолчанию | Описание |
+|----------|-----|-------------|----------|
+| max_retries | int | 3 | Число повторных попыток |
+| delay_seconds | float | 0.5 | Начальная задержка |
+| backoff_multiplier | float | 2.0 | Множитель задержки |
+
+### PipelineConfig
+
+| Параметр | Тип | По умолчанию | Описание |
+|----------|-----|-------------|----------|
+| pool_recycle | int | 3600 | Пересоздание соединений (сек) |
+| pool_pre_ping | bool | True | Проверка соединения перед использованием |
+| pool_timeout | int | 30 | Таймаут ожидания соединения из пула |
+| default_timeout | float | 30.0 | Таймаут выполнения задачи |
+| max_concurrency | int | 100 | Макс. одновременных операций |
+| shutdown_timeout | float | 10.0 | Таймаут graceful shutdown |
+
+## Соединения с БД
+
+- `pool_pre_ping=True` — перед каждым использованием соединения выполняется `SELECT 1`
+- `pool_recycle=3600` — соединения принудительно пересоздаются каждый час
+- При обрыве asyncpg + SQLAlchemy переподключаются автоматически
+- Каждый канал имеет независимый пул соединений
+
+## Ограничения
+
+- Только PostgreSQL (драйвер asyncpg)
+- Одна БД на инстанс
+- FIFO очереди без приоритетов
+- Нет шардирования/репликации на уровне инфраструктуры
+```
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\event_infrastructure\__init__.py
+Содержимое:
+"""Автономная асинхронная инфраструктура для PostgreSQL + SQLModel.
+
+Предоставляет:
+- Настраиваемые каналы (read/write/admin + любые свои)
+- Универсальный CRUD на основе SQLModel-схем
+- Интеграцию с db_migrator (единый источник истины)
+"""
+
+from .pipeline import create_pipeline, shutdown_pipeline
+from .router.router import EventRouter
+
+__all__ = ["create_pipeline", "shutdown_pipeline", "EventRouter"]
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\event_infrastructure\config\models.py
+Содержимое:
+from dataclasses import dataclass, field
+
+
+@dataclass
+class ChannelConfig:
+    """Конфигурация одного канала."""
+    pool_size: int = 10
+    max_overflow: int = 5
+    queue_maxsize: int = 1000
+
+
+@dataclass
+class RetryConfig:
+    """Конфигурация повторных попыток."""
+    max_retries: int = 3
+    delay_seconds: float = 0.5
+    backoff_multiplier: float = 2.0
+
+
+@dataclass
+class CacheConfig:
+    """Конфигурация кеширования."""
+    enabled: bool = False
+    ttl_seconds: float = 60.0
+    max_size: int = 1000
+    
+
+@dataclass
+class PipelineConfig:
+    """Полная конфигурация event_infrastructure.
+    
+    Attributes:
+        db_url: Строка подключения (postgresql+asyncpg://...)
+        channels: Словарь каналов {"имя": ChannelConfig, ...}
+        pool_recycle: Время жизни соединения в секундах
+        pool_pre_ping: Проверка живучести перед использованием
+        pool_timeout: Таймаут ожидания соединения из пула
+        default_timeout: Таймаут выполнения задачи
+        metrics_enabled: Включить сбор метрик
+        max_concurrency: Максимальная конкурентность
+        retry: Конфигурация повторных попыток
+        shutdown_timeout: Таймаут graceful shutdown
+    """
+    db_url: str
+    
+    channels: dict[str, ChannelConfig] = field(default_factory=lambda: {
+        "read": ChannelConfig(pool_size=20, max_overflow=10, queue_maxsize=500),
+        "write": ChannelConfig(pool_size=10, max_overflow=5, queue_maxsize=200),
+        "admin": ChannelConfig(pool_size=2, max_overflow=0, queue_maxsize=50),
+    })
+    
+    pool_recycle: int = 3600
+    pool_pre_ping: bool = True
+    pool_timeout: int = 30
+    
+    default_timeout: float = 30.0
+    metrics_enabled: bool = True
+    max_concurrency: int = 200
+    retry: RetryConfig = field(default_factory=RetryConfig)
+    cache: CacheConfig = field(default_factory=CacheConfig)
+    
+    shutdown_timeout: float = 10.0
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\event_infrastructure\config\__init__.py
+Содержимое:
+from .models import PipelineConfig, ChannelConfig, RetryConfig, CacheConfig
+
+__all__ = ["PipelineConfig", "ChannelConfig", "RetryConfig", "CacheConfig"]
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\event_infrastructure\db\dispatcher.py
+Содержимое:
+"""Корутины-обработчики для выполнения SQL из очереди."""
+
+import asyncio
+import time
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncEngine
+from .queues import SQLTask
+from .models import TaskResult
+
+
+class Dispatcher:
+    """Запускает N корутин-обработчиков для одного канала."""
+    
+    def __init__(self, name: str, engine: AsyncEngine, queue: asyncio.Queue, workers: int):
+        self.name = name
+        self._engine = engine
+        self._queue = queue
+        self._workers = workers
+        self._tasks: list[asyncio.Task] = []
+        
+        self.tasks_processed = 0
+        self.tasks_failed = 0
+        self._total_time = 0.0
+        self.last_error = ""
+    
+    async def start(self):
+        self._tasks = [
+            asyncio.create_task(self._run(i), name=f"disp-{self.name}-{i}")
+            for i in range(self._workers)
+        ]
+    
+    async def _run(self, index: int):
+        while True:
+            task = None
+            try:
+                task = await self._queue.get()
+            except asyncio.CancelledError:
+                return
+            except Exception:
+                continue
+            
+            try:
+                t0 = time.monotonic()
+                result = await self._execute(task)
+                dt = time.monotonic() - t0
+                
+                self.tasks_processed += 1
+                self._total_time += dt
+                
+                if not result.success:
+                    self.tasks_failed += 1
+                    self.last_error = result.error_message
+                
+                future = task.get_future()
+                if not future.done():
+                    future.set_result(result)
+                
+                self._queue.task_done()
+            except asyncio.CancelledError:
+                return
+            except Exception as e:
+                self.tasks_failed += 1
+                self.last_error = str(e)
+                if task:
+                    future = task.get_future()
+                    if not future.done():
+                        future.set_result(TaskResult(success=False, error_code=100, error_message=str(e)))
+                    self._queue.task_done()
+    
+    async def _execute(self, task: SQLTask) -> TaskResult:
+        try:
+            coro = self._do_execute(task)
+            if task.timeout:
+                return await asyncio.wait_for(coro, timeout=task.timeout)
+            return await coro
+        except asyncio.TimeoutError:
+            return TaskResult(success=False, error_code=100, error_message=f"Timeout after {task.timeout}s")
+        except Exception as e:
+            return TaskResult(success=False, error_code=100, error_message=str(e))
+    
+    async def _do_execute(self, task: SQLTask) -> TaskResult:
+        async with self._engine.begin() as conn:
+            result = await conn.execute(text(task.sql), task.params)
+            if result.returns_rows:
+                rows = result.fetchall()
+                return TaskResult(success=True, data=rows)
+            return TaskResult(success=True)
+    
+    @property
+    def avg_time_ms(self) -> float:
+        if self.tasks_processed == 0:
+            return 0.0
+        return (self._total_time / self.tasks_processed) * 1000
+    
+    @property
+    def active_count(self) -> int:
+        return sum(1 for t in self._tasks if not t.done())
+    
+    async def shutdown(self, timeout: float):
+        for t in self._tasks:
+            t.cancel()
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*self._tasks, return_exceptions=True),
+                timeout=timeout
+            )
+        except asyncio.TimeoutError:
+            pass
+        except asyncio.CancelledError:
+            pass
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\event_infrastructure\db\models.py
+Содержимое:
+"""Модели данных для результатов и метрик."""
+
+from dataclasses import dataclass, field
+from typing import Any, Optional
+
+
+@dataclass
+class TaskResult:
+    """Результат выполнения SQL-запроса."""
+    success: bool
+    data: Any = None
+    error_code: int = 0
+    error_message: str = ""
+
+
+@dataclass
+class ChannelMetrics:
+    """Метрики одного канала."""
+    name: str = ""
+    queue_size: int = 0
+    queue_maxsize: int = 0
+    active_workers: int = 0
+    pool_size: int = 0
+    tasks_processed: int = 0
+    tasks_failed: int = 0
+    avg_time_ms: float = 0.0
+    last_error: str = ""
+
+
+@dataclass
+class InfrastructureMetrics:
+    """Общие метрики инфраструктуры."""
+    channels: dict[str, ChannelMetrics] = field(default_factory=dict)
+    uptime_seconds: float = 0.0
+    total_processed: int = 0
+    total_failed: int = 0
+    total_queued: int = 0
+    is_accepting: bool = True
+    start_time: float = 0.0
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\event_infrastructure\db\orchestrator.py
+Содержимое:
+"""Оркестратор — фасад над pools, queues и dispatchers."""
+
+import asyncio
+import time
+from ..config.models import PipelineConfig
+from .pools import PoolManager
+from .queues import QueueManager, SQLTask
+from .dispatcher import Dispatcher
+from .models import TaskResult, InfrastructureMetrics, ChannelMetrics
+
+
+class Orchestrator:
+    """Центральный компонент — связывает пулы, очереди и обработчики.
+    
+    Предоставляет методы:
+    - execute(channel, sql, params) — выполнить SQL в указанном канале
+    - read/write/admin(sql, params) —快捷 методы для стандартных каналов
+    - get_metrics() — метрики всех каналов
+    - shutdown() — graceful shutdown
+    """
+    def __init__(self, config: PipelineConfig):
+        self._config = config
+        self._pools = PoolManager(config)
+        self._queues = QueueManager(config)
+        self._dispatchers: dict[str, Dispatcher] = {}
+        self._start_time = 0.0
+        
+        for name, ch in config.channels.items():
+            self._dispatchers[name] = Dispatcher(
+                name=name,
+                engine=self._pools.get(name),
+                queue=self._queues.get(name),
+                workers=ch.pool_size,
+            )
+    
+    async def start(self):
+        self._start_time = time.time()
+        for d in self._dispatchers.values():
+            await d.start()
+    
+    async def execute(self, channel: str, sql: str, params: dict = None, timeout: float = None) -> TaskResult:
+        task = SQLTask(sql=sql, params=params, timeout=timeout)
+        await self._queues.put(channel, task)
+        return await task.get_future()
+    
+    async def read(self, sql: str, params: dict = None, timeout: float = None) -> TaskResult:
+        return await self.execute("read", sql, params, timeout)
+    
+    async def write(self, sql: str, params: dict = None, timeout: float = None) -> TaskResult:
+        return await self.execute("write", sql, params, timeout)
+    
+    async def admin(self, sql: str, params: dict = None, timeout: float = None) -> TaskResult:
+        return await self.execute("admin", sql, params, timeout)
+    
+    def get_metrics(self) -> InfrastructureMetrics:
+        channels = {}
+        total_processed = 0
+        total_failed = 0
+        total_queued = 0
+        
+        for name, d in self._dispatchers.items():
+            q = self._queues.get(name)
+            channels[name] = ChannelMetrics(
+                name=name,
+                queue_size=q.qsize(),
+                queue_maxsize=q.maxsize,
+                active_workers=d.active_count,
+                pool_size=d._workers,
+                tasks_processed=d.tasks_processed,
+                tasks_failed=d.tasks_failed,
+                avg_time_ms=d.avg_time_ms,
+                last_error=d.last_error,
+            )
+            total_processed += d.tasks_processed
+            total_failed += d.tasks_failed
+            total_queued += q.qsize()
+        
+        return InfrastructureMetrics(
+            channels=channels,
+            uptime_seconds=time.time() - self._start_time,
+            total_processed=total_processed,
+            total_failed=total_failed,
+            total_queued=total_queued,
+            is_accepting=self._queues._accepting,
+            start_time=self._start_time,
+        )
+    
+    async def shutdown(self, timeout: float = None):
+        if timeout is None:
+            timeout = self._config.shutdown_timeout
+        
+        self._queues.stop_accepting()
+        
+        for d in self._dispatchers.values():
+            await d.shutdown(timeout)
+        
+        await self._pools.close_all()
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\event_infrastructure\db\pools.py
+Содержимое:
+"""Управление пулами асинхронных соединений."""
+
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
+from ..config.models import PipelineConfig
+
+
+class PoolManager:
+    """Создаёт и управляет пулами соединений для каждого канала."""
+    
+    def __init__(self, config: PipelineConfig):
+        self._engines: dict[str, AsyncEngine] = {}
+        
+        for name, ch in config.channels.items():
+            self._engines[name] = create_async_engine(
+                config.db_url,
+                pool_size=ch.pool_size,
+                max_overflow=ch.max_overflow,
+                pool_recycle=config.pool_recycle,
+                pool_pre_ping=config.pool_pre_ping,
+                pool_timeout=config.pool_timeout,
+            )
+    
+    def get(self, channel: str) -> AsyncEngine:
+        """Возвращает движок для указанного канала."""
+        return self._engines[channel]
+    
+    async def close_all(self):
+        """Закрывает все пулы."""
+        for engine in self._engines.values():
+            await engine.dispose()
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\event_infrastructure\db\queues.py
+Содержимое:
+"""Управление очередями задач."""
+
+import asyncio
+from ..config.models import PipelineConfig
+
+
+class SQLTask:
+    """Задача на выполнение SQL-запроса."""
+    
+    def __init__(self, sql: str, params: dict = None, timeout: float = None):
+        self.sql = sql
+        self.params = params or {}
+        self.timeout = timeout
+        self._future = asyncio.get_event_loop().create_future()
+    
+    def get_future(self) -> asyncio.Future:
+        return self._future
+
+
+class QueueManager:
+    """Управляет очередями задач для каждого канала."""
+    
+    def __init__(self, config: PipelineConfig):
+        self._queues: dict[str, asyncio.Queue] = {}
+        self._accepting = True
+        
+        for name, ch in config.channels.items():
+            self._queues[name] = asyncio.Queue(maxsize=ch.queue_maxsize)
+    
+    async def put(self, channel: str, task: SQLTask):
+        """Добавляет задачу в очередь канала."""
+        if not self._accepting:
+            raise RuntimeError(f"Channel '{channel}' is shutting down")
+        await self._queues[channel].put(task)
+    
+    def get(self, channel: str) -> asyncio.Queue:
+        """Возвращает очередь канала."""
+        return self._queues[channel]
+    
+    def stop_accepting(self):
+        """Прекращает приём новых задач."""
+        self._accepting = False
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\event_infrastructure\db\__init__.py
+Содержимое:
+from .orchestrator import Orchestrator
+from .models import TaskResult, ChannelMetrics, InfrastructureMetrics
+
+__all__ = ["Orchestrator", "TaskResult", "ChannelMetrics", "InfrastructureMetrics"]
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\event_infrastructure\router\cache.py
+Содержимое:
+"""In-memory кеш для ответов."""
+
+import time
+from typing import Optional
+from .response import Response
+
+
+class MemoryCache:
+    """Простой in-memory кеш с TTL и ограничением размера."""
+    
+    def __init__(self, ttl: float = 60.0, max_size: int = 1000):
+        self._cache: dict[str, tuple[float, Response]] = {}
+        self._ttl = ttl
+        self._max_size = max_size
+    
+    def get(self, key: str) -> Optional[Response]:
+        """Возвращает ответ из кеша, если он есть и не просрочен."""
+        if key in self._cache:
+            ts, response = self._cache[key]
+            age = time.monotonic() - ts
+            if age < self._ttl:
+                # print(f"CACHE HIT: key={key}, age={age:.3f}s, ttl={self._ttl}s")
+                return response
+            del self._cache[key]
+        return None
+    
+    def set(self, key: str, response: Response):
+        """Сохраняет ответ в кеш."""
+        if len(self._cache) >= self._max_size:
+            oldest_key = min(self._cache, key=lambda k: self._cache[k][0])
+            del self._cache[oldest_key]
+        self._cache[key] = (time.monotonic(), response)
+    
+    def invalidate(self, key: str):
+        """Удаляет запись из кеша."""
+        self._cache.pop(key, None)
+    
+    def clear(self):
+        """Очищает весь кеш."""
+        self._cache.clear()
+    
+    @property
+    def size(self) -> int:
+        return len(self._cache)
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\event_infrastructure\router\response.py
+Содержимое:
+"""Унифицированный формат ответов."""
+
+from typing import Any, Dict, List, Optional
+from dataclasses import dataclass, field
+
+
+@dataclass
+class ErrorInfo:
+    """Информация об ошибке."""
+    code: int
+    message: str
+
+
+@dataclass
+class MetaInfo:
+    """Мета-информация об операции."""
+    entity: Optional[str] = None
+    operation: str = ""
+    affected_rows: int = 0
+    execution_time_ms: float = 0.0
+
+
+@dataclass
+class Response:
+    """Универсальный ответ."""
+    success: bool
+    data: Optional[List[Dict[str, Any]]] = None
+    count: int = 0
+    error: Optional[ErrorInfo] = None
+    meta: MetaInfo = field(default_factory=MetaInfo)
+    
+    @classmethod
+    def success_response(
+        cls,
+        data: List[Dict[str, Any]],
+        operation: str,
+        entity: Optional[str] = None,
+        affected_rows: int = 0,
+        execution_time_ms: float = 0.0
+    ) -> "Response":
+        """Создаёт успешный ответ."""
+        return cls(
+            success=True,
+            data=data,
+            count=len(data),
+            meta=MetaInfo(
+                entity=entity,
+                operation=operation,
+                affected_rows=affected_rows or len(data),
+                execution_time_ms=execution_time_ms
+            )
+        )
+    
+    @classmethod
+    def error_response(
+        cls,
+        error_code: int,
+        error_message: str,
+        operation: str,
+        entity: Optional[str] = None,
+        execution_time_ms: float = 0.0
+    ) -> "Response":
+        """Создаёт ответ с ошибкой."""
+        return cls(
+            success=False,
+            data=None,
+            count=0,
+            error=ErrorInfo(code=error_code, message=error_message),
+            meta=MetaInfo(
+                entity=entity,
+                operation=operation,
+                execution_time_ms=execution_time_ms
+            )
+        )
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Преобразует ответ в словарь."""
+        result = {
+            "success": self.success,
+            "data": self.data,
+            "count": self.count,
+            "meta": {
+                "entity": self.meta.entity,
+                "operation": self.meta.operation,
+                "affected_rows": self.meta.affected_rows,
+                "execution_time_ms": self.meta.execution_time_ms
+            }
+        }
+        if self.error:
+            result["error"] = {
+                "code": self.error.code,
+                "message": self.error.message
+            }
+        else:
+            result["error"] = None
+        return result
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\event_infrastructure\router\router.py
+Содержимое:
+"""Универсальный маршрутизатор событий с автоматической регистрацией сущностей."""
+
+from typing import Type, Dict, Any, Optional, Set
+from sqlmodel import SQLModel
+import asyncio
+import time
+from datetime import datetime
+
+from infrastructure.event_infrastructure.db import Orchestrator
+from .schemas import EntitySchema, EntityRegistry
+from .operations import (
+    CreateOperation,
+    ReadOperation,
+    UpdateOperation,
+    DeleteOperation,
+    CustomOperation,
+)
+from .response import Response
+from .cache import MemoryCache
+from ..config.models import RetryConfig, CacheConfig
+
+
+class EventRouter:
+    """Единый интерфейс для всех операций с БД.
+    
+    Все методы принимают channel — явное указание канала.
+    Все методы возвращают Response.
+    
+    Поддерживает:
+    - Повторные попытки (retry) при ошибках соединения
+    - Кеширование (cache) с настраиваемым TTL
+    """
+    
+    def __init__(
+        self,
+        orchestrator: Orchestrator,
+        schemas: Dict[str, Type[SQLModel]],
+        exclude_tables: Optional[Set[str]] = None,
+        default_timeout: float = 30.0,
+        metrics_enabled: bool = True,
+        max_concurrency: int = 100,
+        retry: RetryConfig = None,
+        cache: CacheConfig = None,
+    ):
+        self._db = orchestrator
+        self.default_timeout = default_timeout
+        self.metrics_enabled = metrics_enabled
+        self._max_concurrency = max_concurrency
+        self._semaphore = asyncio.Semaphore(max_concurrency) if max_concurrency > 0 else None
+        self._retry = retry or RetryConfig()
+        
+        cache_cfg = cache or CacheConfig()
+        self._cache = MemoryCache(ttl=cache_cfg.ttl_seconds, max_size=cache_cfg.max_size) if cache_cfg.enabled else None
+        
+        self._registry = EntityRegistry()
+        
+        exclude = exclude_tables or set()
+        for table_name, schema in schemas.items():
+            if table_name in exclude:
+                continue
+            
+            exclude_insert, exclude_update = self._detect_exclude_fields(schema)
+            
+            self._registry.register(EntitySchema(
+                table_name=table_name,
+                schema=schema,
+                primary_key="id",
+                exclude_from_insert=exclude_insert,
+                exclude_from_update=exclude_update,
+            ))
+        
+        print(f"Зарегистрировано сущностей: {len(self._registry.get_all())}")
+        for name in self._registry.get_all().keys():
+            print(f"   - {name}")
+        
+        self._create_op = CreateOperation(self._db, self._registry)
+        self._read_op = ReadOperation(self._db, self._registry)
+        self._update_op = UpdateOperation(self._db, self._registry)
+        self._delete_op = DeleteOperation(self._db, self._registry)
+        self._custom_op = CustomOperation(self._db)
+    
+    def _detect_exclude_fields(self, schema: Type[SQLModel]) -> tuple[Set[str], Set[str]]:
+        exclude_insert = set()
+        exclude_update = set()
+        for field_name, field_info in schema.model_fields.items():
+            if field_info.default is None or field_name == "id":
+                exclude_insert.add(field_name)
+            if field_name == "id":
+                exclude_update.add(field_name)
+        return exclude_insert, exclude_update
+    
+    async def _execute_with_semaphore(self, coro):
+        if self._semaphore:
+            async with self._semaphore:
+                return await coro
+        return await coro
+    
+    def _is_retryable_error(self, error_message: str) -> bool:
+        retryable = ["connection", "timeout", "deadlock", "serialization", "server closed", "connection was closed"]
+        msg_lower = error_message.lower()
+        return any(keyword in msg_lower for keyword in retryable)
+    
+    async def _with_retry(self, coro, retry_config: RetryConfig = None):
+        rc = retry_config or self._retry
+        last_response = None
+        delay = rc.delay_seconds
+        
+        for attempt in range(rc.max_retries + 1):
+            response = await coro()
+            
+            if response.success:
+                response.meta.retries = attempt
+                return response
+            
+            if attempt < rc.max_retries and self._is_retryable_error(response.error.message if response.error else ""):
+                last_response = response
+                await asyncio.sleep(delay)
+                delay *= rc.backoff_multiplier
+            else:
+                response.meta.retries = attempt
+                return response
+        
+        if last_response:
+            last_response.meta.retries = rc.max_retries
+        return last_response
+    
+    def _cache_key(self, entity: str, id) -> str:
+        return f"{entity}:{id}"
+    
+    # ================================================================
+    # CRUD
+    # ================================================================
+    
+    async def create(self, entity: str, data: Dict[str, Any], channel: str = "write",
+                     retry: RetryConfig = None, cache: bool = None) -> Response:
+        async def _do():
+            return await self._create_op.execute(entity, data, channel)
+        response = await self._execute_with_semaphore(self._with_retry(_do, retry))
+        
+        if response.success and self._cache and cache is not False:
+            # Инвалидируем кеш для этой сущности (могла измениться)
+            pass  # CREATE не инвалидирует — запись новая, кеша для неё ещё нет
+        
+        return response
+    
+    async def read(self, entity: str, id: int, channel: str = "read",
+                   retry: RetryConfig = None, cache: bool = None) -> Response:
+        use_cache = cache if cache is not None else (self._cache is not None)
+        
+        if use_cache and self._cache:
+            cached = self._cache.get(self._cache_key(entity, id))
+            if cached is not None:
+                return cached
+        
+        async def _do():
+            return await self._read_op.execute(entity, id, channel)
+        response = await self._execute_with_semaphore(self._with_retry(_do, retry))
+        
+        if response.success and use_cache and self._cache:
+            self._cache.set(self._cache_key(entity, id), response)
+        
+        return response
+    
+    async def update(self, entity: str, id: int, data: Dict[str, Any], channel: str = "write",
+                     retry: RetryConfig = None, cache: bool = None) -> Response:
+        async def _do():
+            return await self._update_op.execute(entity, id, data, channel)
+        response = await self._execute_with_semaphore(self._with_retry(_do, retry))
+        
+        if response.success and self._cache and cache is not False:
+            self._cache.invalidate(self._cache_key(entity, id))
+        
+        return response
+    
+    async def delete(self, entity: str, id: int, channel: str = "write",
+                     retry: RetryConfig = None, cache: bool = None) -> Response:
+        async def _do():
+            return await self._delete_op.execute(entity, id, channel)
+        response = await self._execute_with_semaphore(self._with_retry(_do, retry))
+        
+        if response.success and self._cache and cache is not False:
+            self._cache.invalidate(self._cache_key(entity, id))
+        
+        return response
+    
+    async def custom(self, sql: str, params: Dict[str, Any] = None, channel: str = "read",
+                     retry: RetryConfig = None) -> Response:
+        async def _do():
+            return await self._custom_op.execute(sql, params, channel)
+        return await self._execute_with_semaphore(self._with_retry(_do, retry))
+    
+    async def execute(self, channel: str, sql: str, params: dict = None,
+                      retry: RetryConfig = None) -> Response:
+        t0 = time.monotonic()
+        
+        async def _do():
+            result = await self._db.execute(channel, sql, params)
+            dt = (time.monotonic() - t0) * 1000
+            
+            if result.success:
+                data = [{"row": row} for row in (result.data or [])]
+                return Response.success_response(data=data, operation="execute", execution_time_ms=dt)
+            return Response.error_response(
+                error_code=result.error_code,
+                error_message=result.error_message,
+                operation="execute",
+                execution_time_ms=dt
+            )
+        
+        return await self._execute_with_semaphore(self._with_retry(_do, retry))
+    
+    # ================================================================
+    # Health Check
+    # ================================================================
+    
+    async def health_check(self) -> dict:
+        result = {
+            "alive": True,
+            "db_connected": False,
+            "uptime_seconds": 0.0,
+            "channels": {},
+            "cache_size": 0,
+            "error": None,
+        }
+        
+        try:
+            r = await self._db.execute("admin", "SELECT 1")
+            result["db_connected"] = r.success
+            if not r.success:
+                result["error"] = r.error_message
+        except Exception as e:
+            result["alive"] = False
+            result["error"] = str(e)
+        
+        m = self._db.get_metrics()
+        result["uptime_seconds"] = m.uptime_seconds
+        
+        for name, ch in m.channels.items():
+            result["channels"][name] = {
+                "active_workers": ch.active_workers,
+                "pool_size": ch.pool_size,
+                "queue_size": ch.queue_size,
+            }
+        
+        if self._cache:
+            result["cache_size"] = self._cache.size
+        
+        return result
+    
+    async def is_alive(self) -> bool:
+        try:
+            r = await self._db.execute("admin", "SELECT 1")
+            return r.success
+        except Exception:
+            return False
+    
+    # ================================================================
+    # Метрики и статистика
+    # ================================================================
+    
+    def get_metrics(self):
+        return self._db.get_metrics()
+    
+    def print_metrics(self, full: bool = False):
+        m = self._db.get_metrics()
+        server_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        print("\n" + "=" * 60)
+        print(f"  СЕРВЕРНОЕ ВРЕМЯ: {server_time}")
+        print(f"  UPTIME: {m.uptime_seconds:.1f}s")
+        print(f"  ВСЕГО ОБРАБОТАНО: {m.total_processed}")
+        print(f"  ОШИБОК: {m.total_failed}")
+        print(f"  В ОЧЕРЕДЯХ: {m.total_queued}")
+        print(f"  ПРИНИМАЕТ ЗАДАЧИ: {'Да' if m.is_accepting else 'Нет'}")
+        print(f"  ЗАРЕГИСТРИРОВАНО СУЩНОСТЕЙ: {len(self._registry.get_all())}")
+        if self._cache:
+            print(f"  КЕШ: {self._cache.size} записей")
+        
+        if full:
+            print("\n  ДЕТАЛИЗАЦИЯ ПО КАНАЛАМ:")
+            for name, ch in m.channels.items():
+                print(f"\n  [{name.upper()}]")
+                print(f"    Pool:       {ch.active_workers}/{ch.pool_size} workers")
+                print(f"    Queue:      {ch.queue_size}/{ch.queue_maxsize}")
+                print(f"    Processed:  {ch.tasks_processed}")
+                print(f"    Failed:     {ch.tasks_failed}")
+                print(f"    Avg time:   {ch.avg_time_ms:.2f}ms")
+                if ch.last_error:
+                    print(f"    Last error: {ch.last_error[:80]}")
+        
+        print("=" * 60 + "\n")
+    
+    def get_registry(self) -> Dict[str, EntitySchema]:
+        return self._registry.get_all()
+    
+    def has_entity(self, name: str) -> bool:
+        return self._registry.has(name)
+    
+    async def shutdown(self, timeout: float = None):
+        await self._db.shutdown(timeout)
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\event_infrastructure\router\__init__.py
+Содержимое:
+"""Универсальный маршрутизатор событий."""
+
+from .router import EventRouter
+from .response import Response, ErrorInfo, MetaInfo
+from .schemas import EntitySchema, EntityRegistry
+
+__all__ = [
+    "EventRouter",
+    "Response",
+    "ErrorInfo",
+    "MetaInfo",
+    "EntitySchema",
+    "EntityRegistry",
+]
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\event_infrastructure\router\operations\base.py
+Содержимое:
+"""Базовый класс для всех операций."""
+
+from typing import Any, Dict, List, Optional
+from abc import ABC, abstractmethod
+
+from infrastructure.event_infrastructure.db import Orchestrator, TaskResult
+from ..response import Response
+
+
+class BaseOperation(ABC):
+    """Базовый класс для операций."""
+    
+    def __init__(self, db: Orchestrator):
+        self.db = db
+    
+    @abstractmethod
+    async def execute(self, **kwargs) -> Response:
+        """Выполняет операцию."""
+        pass
+    
+    def _handle_db_result(
+        self,
+        result: TaskResult,
+        operation: str,
+        entity: Optional[str] = None,
+        column_names: Optional[List[str]] = None,
+        execution_time_ms: float = 0.0
+    ) -> Response:
+        """Обрабатывает результат и возвращает унифицированный ответ."""
+        if result.success:
+            data = []
+            if result.data:
+                if column_names:
+                    data = [dict(zip(column_names, row)) for row in result.data]
+                else:
+                    data = [{"row": row} for row in result.data]
+            
+            return Response.success_response(
+                data=data,
+                operation=operation,
+                entity=entity,
+                affected_rows=len(data) if data else 0,
+                execution_time_ms=execution_time_ms
+            )
+        else:
+            return Response.error_response(
+                error_code=result.error_code or 100,
+                error_message=result.error_message or "Unknown error",
+                operation=operation,
+                entity=entity,
+                execution_time_ms=execution_time_ms
+            )
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\event_infrastructure\router\operations\create.py
+Содержимое:
+"""Операция создания записи."""
+
+from typing import Dict, Any
+import time
+
+from ..schemas.registry import EntityRegistry
+from ..response import Response
+from .base import BaseOperation
+
+
+class CreateOperation(BaseOperation):
+    """Создание записи в таблице."""
+    
+    def __init__(self, db, registry: EntityRegistry):
+        super().__init__(db)
+        self._registry = registry
+    
+    async def execute(self, entity: str, data: Dict[str, Any], channel: str = "write") -> Response:
+        start_time = time.monotonic()
+        
+        try:
+            schema = self._registry.get_or_raise(entity)
+        except ValueError as e:
+            return Response.error_response(
+                error_code=100, error_message=str(e), operation="create", entity=entity
+            )
+        
+        try:
+            validated_data = schema.validate_data(data)
+        except Exception as e:
+            return Response.error_response(
+                error_code=100, error_message=f"Validation error: {str(e)}",
+                operation="create", entity=entity
+            )
+        
+        fields = schema.get_insert_fields()
+        all_fields = list(schema.get_field_names())
+        field_names = [f for f in all_fields if f in fields and f in validated_data]
+        
+        if not field_names:
+            return Response.error_response(
+                error_code=100, error_message="No fields to insert",
+                operation="create", entity=entity
+            )
+        
+        placeholders = [f":{name}" for name in field_names]
+        returning_clause = ", ".join(all_fields)
+        sql = f"""
+            INSERT INTO "{entity}" ({', '.join(f'"{f}"' for f in field_names)})
+            VALUES ({', '.join(placeholders)})
+            RETURNING {', '.join(f'"{f}"' for f in all_fields)}
+        """
+        
+        params = {name: validated_data.get(name) for name in field_names}
+        result = await self.db.execute(channel, sql, params)
+        elapsed = (time.monotonic() - start_time) * 1000
+        
+        return self._handle_db_result(
+            result=result, operation="create", entity=entity,
+            column_names=all_fields, execution_time_ms=elapsed
+        )
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\event_infrastructure\router\operations\custom.py
+Содержимое:
+"""Операция выполнения произвольного SQL."""
+
+from typing import Dict, Any, Optional
+import time
+
+from ..response import Response
+from .base import BaseOperation
+
+
+class CustomOperation(BaseOperation):
+    """Выполнение произвольного SQL."""
+    
+    async def execute(self, sql: str, params: Optional[Dict[str, Any]] = None, channel: str = "read") -> Response:
+        start_time = time.monotonic()
+        params = params or {}
+        
+        result = await self.db.execute(channel, sql, params)
+        elapsed = (time.monotonic() - start_time) * 1000
+        
+        if result.success:
+            data = []
+            if result.data:
+                data = [{"row": row} for row in result.data]
+            
+            return Response.success_response(
+                data=data, operation="custom", entity=None,
+                affected_rows=len(data) if data else 0, execution_time_ms=elapsed
+            )
+        else:
+            return Response.error_response(
+                error_code=result.error_code or 100,
+                error_message=result.error_message or "Custom query failed",
+                operation="custom", execution_time_ms=elapsed
+            )
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\event_infrastructure\router\operations\delete.py
+Содержимое:
+"""Операция удаления записи."""
+
+from typing import Any
+import time
+
+from ..schemas.registry import EntityRegistry
+from ..response import Response
+from .base import BaseOperation
+
+
+class DeleteOperation(BaseOperation):
+    """Удаление записи по ID."""
+    
+    def __init__(self, db, registry: EntityRegistry):
+        super().__init__(db)
+        self._registry = registry
+    
+    async def execute(self, entity: str, id: Any, channel: str = "write") -> Response:
+        start_time = time.monotonic()
+        
+        try:
+            schema = self._registry.get_or_raise(entity)
+        except ValueError as e:
+            return Response.error_response(
+                error_code=100, error_message=str(e), operation="delete", entity=entity
+            )
+        
+        pk = schema.primary_key
+        
+        sql = f"""
+            DELETE FROM "{entity}"
+            WHERE "{pk}" = :{pk}
+            RETURNING "{pk}"
+        """
+        
+        result = await self.db.execute(channel, sql, {pk: id})
+        elapsed = (time.monotonic() - start_time) * 1000
+        
+        if result.success and result.data:
+            data = [{pk: row[0]} for row in result.data]
+            return Response.success_response(
+                data=data, operation="delete", entity=entity,
+                affected_rows=len(data), execution_time_ms=elapsed
+            )
+        elif result.success:
+            return Response.success_response(
+                data=[], operation="delete", entity=entity,
+                affected_rows=0, execution_time_ms=elapsed
+            )
+        else:
+            return Response.error_response(
+                error_code=result.error_code or 100,
+                error_message=result.error_message or "Delete failed",
+                operation="delete", entity=entity, execution_time_ms=elapsed
+            )
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\event_infrastructure\router\operations\read.py
+Содержимое:
+"""Операция чтения записи."""
+
+from typing import Any
+import time
+
+from ..schemas.registry import EntityRegistry
+from ..response import Response
+from .base import BaseOperation
+
+
+class ReadOperation(BaseOperation):
+    """Чтение записи по ID."""
+    
+    def __init__(self, db, registry: EntityRegistry):
+        super().__init__(db)
+        self._registry = registry
+    
+    async def execute(self, entity: str, id: Any, channel: str = "read") -> Response:
+        start_time = time.monotonic()
+        
+        try:
+            schema = self._registry.get_or_raise(entity)
+        except ValueError as e:
+            return Response.error_response(
+                error_code=100, error_message=str(e), operation="read", entity=entity
+            )
+        
+        pk = schema.primary_key
+        all_fields = list(schema.get_field_names())
+        select_clause = ", ".join(f'"{f}"' for f in all_fields)
+        
+        sql = f"""
+            SELECT {select_clause}
+            FROM "{entity}"
+            WHERE "{pk}" = :{pk}
+        """
+        
+        result = await self.db.execute(channel, sql, {pk: id})
+        elapsed = (time.monotonic() - start_time) * 1000
+        
+        return self._handle_db_result(
+            result=result, operation="read", entity=entity,
+            column_names=all_fields, execution_time_ms=elapsed
+        )
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\event_infrastructure\router\operations\update.py
+Содержимое:
+"""Операция обновления записи."""
+
+from typing import Dict, Any
+import time
+
+from ..schemas.registry import EntityRegistry
+from ..response import Response
+from .base import BaseOperation
+
+
+class UpdateOperation(BaseOperation):
+    """Обновление записи по ID."""
+    
+    def __init__(self, db, registry: EntityRegistry):
+        super().__init__(db)
+        self._registry = registry
+    
+    async def execute(self, entity: str, id: Any, data: Dict[str, Any], channel: str = "write") -> Response:
+        start_time = time.monotonic()
+        
+        try:
+            schema = self._registry.get_or_raise(entity)
+        except ValueError as e:
+            return Response.error_response(
+                error_code=100, error_message=str(e), operation="update", entity=entity
+            )
+        
+        pk = schema.primary_key
+        all_fields = list(schema.get_field_names())
+        update_fields = schema.get_update_fields()
+        existing_fields = set(data.keys())
+        fields_to_update = [f for f in all_fields if f in update_fields and f in existing_fields]
+        
+        if not fields_to_update:
+            return Response.error_response(
+                error_code=100, error_message="No fields to update",
+                operation="update", entity=entity
+            )
+        
+        set_clause = ", ".join([f'"{name}" = :{name}' for name in fields_to_update])
+        returning_clause = ", ".join(f'"{f}"' for f in all_fields)
+        
+        sql = f"""
+            UPDATE "{entity}"
+            SET {set_clause}
+            WHERE "{pk}" = :{pk}
+            RETURNING {returning_clause}
+        """
+        
+        params = {name: data.get(name) for name in fields_to_update}
+        params[pk] = id
+        
+        result = await self.db.execute(channel, sql, params)
+        elapsed = (time.monotonic() - start_time) * 1000
+        
+        return self._handle_db_result(
+            result=result, operation="update", entity=entity,
+            column_names=all_fields, execution_time_ms=elapsed
+        )
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\event_infrastructure\router\operations\__init__.py
+Содержимое:
+"""Операции для универсального CRUD."""
+
+from .base import BaseOperation
+from .create import CreateOperation
+from .read import ReadOperation
+from .update import UpdateOperation
+from .delete import DeleteOperation
+from .custom import CustomOperation
+
+__all__ = [
+    "BaseOperation",
+    "CreateOperation",
+    "ReadOperation",
+    "UpdateOperation",
+    "DeleteOperation",
+    "CustomOperation",
+]
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\event_infrastructure\router\schemas\base.py
+Содержимое:
+"""Базовая схема для сущностей."""
+
+from typing import Type, Dict, Any, Optional, Set
+from sqlmodel import SQLModel
+from enum import Enum
+
+
+class EntitySchema:
+    """Мета-информация о сущности."""
+    
+    def __init__(
+        self,
+        table_name: str,
+        schema: Type[SQLModel],
+        primary_key: str = "id",
+        exclude_from_insert: Optional[Set[str]] = None,
+        exclude_from_update: Optional[Set[str]] = None,
+    ):
+        self.table_name = table_name
+        self.schema = schema
+        self.primary_key = primary_key
+        self.exclude_from_insert = exclude_from_insert or set()
+        self.exclude_from_update = exclude_from_update or set()
+        self.exclude_from_update.add(primary_key)
+    
+    def get_field_names(self) -> Set[str]:
+        return set(self.schema.model_fields.keys())
+    
+    def get_insert_fields(self) -> Set[str]:
+        return self.get_field_names() - self.exclude_from_insert
+    
+    def get_update_fields(self) -> Set[str]:
+        return self.get_field_names() - self.exclude_from_update
+    
+    def validate_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        validated = self.schema(**data)
+        result = {}
+        for field_name, value in validated.model_dump().items():
+            if isinstance(value, Enum):
+                result[field_name] = value.value
+            else:
+                result[field_name] = value
+        return result
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\event_infrastructure\router\schemas\registry.py
+Содержимое:
+"""Реестр зарегистрированных сущностей."""
+
+from typing import Dict, Optional
+from .base import EntitySchema
+
+
+class EntityRegistry:
+    """Реестр сущностей для CRUD операций."""
+    
+    def __init__(self):
+        self._entities: Dict[str, EntitySchema] = {}
+    
+    def register(self, entity_schema: EntitySchema) -> None:
+        name = entity_schema.table_name
+        if name in self._entities:
+            raise ValueError(f"Entity '{name}' already registered")
+        self._entities[name] = entity_schema
+    
+    def get(self, name: str) -> Optional[EntitySchema]:
+        return self._entities.get(name)
+    
+    def has(self, name: str) -> bool:
+        return name in self._entities
+    
+    def get_or_raise(self, name: str) -> EntitySchema:
+        schema = self.get(name)
+        if not schema:
+            raise ValueError(f"Entity '{name}' not registered")
+        return schema
+    
+    def get_all(self) -> Dict[str, EntitySchema]:
+        return self._entities.copy()
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\event_infrastructure\router\schemas\__init__.py
+Содержимое:
+"""Схемы и реестр сущностей."""
+
+from .base import EntitySchema
+from .registry import EntityRegistry
+
+__all__ = ["EntitySchema", "EntityRegistry"]
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\templates\env_template.txt
+Содержимое:
+# ============================================================
+# Конфигурация инфраструктурного слоя
+# Скопируйте нужные строки в .env или отредактируйте этот файл,
+# если он уже создан командой infra-init.
+# ============================================================
+
+# --- Подключение к базе данных ---
+# Синхронный URL (используется для миграций)
+DB_URL=postgresql://postgres:123@localhost:5432/Proj_v2
+
+# Асинхронный URL (используется для работы event_infrastructure)
+DB_URL_ASYNC=postgresql+asyncpg://postgres:123@localhost:5432/Proj_v2
+
+# --- Настройки канала read ---
+READ_POOL_SIZE=39
+READ_MAX_OVERFLOW=10
+READ_QUEUE_MAXSIZE=50000
+
+# --- Настройки канала write ---
+WRITE_POOL_SIZE=60
+WRITE_MAX_OVERFLOW=5
+WRITE_QUEUE_MAXSIZE=50000
+
+# --- Настройки канала admin ---
+ADMIN_POOL_SIZE=1
+ADMIN_MAX_OVERFLOW=0
+ADMIN_QUEUE_MAXSIZE=5000
+
+# --- Прочие параметры pipeline ---
+# Таймаут ожидания соединения из пула (сек)
+POOL_TIMEOUT=30
+
+# Таймаут выполнения задачи по умолчанию (сек)
+DEFAULT_TIMEOUT=30.0
+
+# Таймаут graceful shutdown (сек)
+SHUTDOWN_TIMEOUT=10.0
+
+# Максимальная конкурентность (0 - без ограничений)
+MAX_CONCURRENCY=100000
+
+# --- Кеш ---
+CACHE_ENABLED=True
+CACHE_TTL_SECONDS=3.0
+CACHE_MAX_SIZE=5000
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\templates\models_template.py
+Содержимое:
+from typing import Optional, List, Dict, Any
+from datetime import datetime, time
+
+from sqlmodel import SQLModel, Field
+from sqlalchemy import JSON, UniqueConstraint
+
+
+metadata = SQLModel.metadata
+
+
+# ============================================
+# 1. ПОЛЬЗОВАТЕЛИ И РОЛИ
+# Связи: Role 1→N User (одна роль — много пользователей)
+#        User 1→1 Student/Tutor/Admin (один пользователь — один профиль)
+# ============================================
+
+class Role(SQLModel, table=True):
+    """Роли пользователей."""
+    __tablename__ = "roles"
+    id: Optional[int] = Field(default=None, primary_key=True)                    # [_авто_] ID роли
+    name: str = Field(max_length=50, unique=True)                                # [обязат] Название: 'student', 'tutor', 'admin'
+
+
+class User(SQLModel, table=True):
+    """Пользователи системы."""
+    __tablename__ = "users"
+    id: Optional[int] = Field(default=None, primary_key=True)                    # [_авто_] ID пользователя
+    created_at: Optional[datetime] = Field(default_factory=datetime.now)         # [_авто_] Дата и время создания аккаунта
+    refresh_token: Optional[str] = Field(default=None, max_length=500)           # [необяз] Refresh токен
+
+    role_id: int = Field(foreign_key="roles.id")                                 # [обязат] ID роли (внешний ключ на roles)
+    username: str = Field(max_length=50, unique=True)                            # [обязат] Логин (уникальный)
+    personal_number: str = Field(max_length=50, unique=True)                     # [обязат] Уникальный личный код (буквенно-цифровой)
+    password_hash: str = Field(max_length=255)                                   # [обязат] Хеш пароля (bcrypt)
+    full_name: str = Field(max_length=255)                                       # [обязат] Полное ФИО
+    email: str = Field(max_length=255, unique=True)                              # [обязат] Электронная почта (уникальная)
+
+    gender: Optional[str] = Field(default=None, max_length=20)                   # [необяз] Пол (male/female/other)
+    additional_info: Optional[str] = None                                        # [необяз] Дополнительная информация
+
+
+# ============================================
+# 2. ПРОФИЛИ ПОЛЬЗОВАТЕЛЕЙ
+# Связи: User 1→1 Admin (один пользователь — один админ)
+#        User 1→1 Student (один пользователь — один ученик)
+#        Student 1→N Configuration (один ученик — много конфигураций)
+#        Student 1→1 StudentSettings (один ученик — одни настройки)
+#        User 1→1 Tutor (один пользователь — один репетитор)
+#        Tutor 1→N Configuration (один репетитор — много конфигураций)
+#        Tutor 1→1 TutorSettings (один репетитор — одни настройки)
+#        Tutor 1→N Booking (один репетитор — много броней)
+#        Tutor 1→N Lesson (один репетитор — много уроков)
+# ============================================
+
+class Admin(SQLModel, table=True):
+    """Администраторы."""
+    __tablename__ = "admins"
+    id: Optional[int] = Field(default=None, primary_key=True)                    # [_авто_] ID администратора
+    user_id: int = Field(foreign_key="users.id", unique=True)                    # [обязат] ID пользователя (внешний ключ на users)
+
+
+class Student(SQLModel, table=True):
+    """Ученики."""
+    __tablename__ = "students"
+    id: Optional[int] = Field(default=None, primary_key=True)                    # [_авто_] ID ученика
+    user_id: int = Field(foreign_key="users.id", unique=True)                    # [обязат] ID пользователя (внешний ключ на users)
+
+
+class Tutor(SQLModel, table=True):
+    """Репетиторы."""
+    __tablename__ = "tutors"
+    id: Optional[int] = Field(default=None, primary_key=True)                    # [_авто_] ID репетитора
+    user_id: int = Field(foreign_key="users.id", unique=True)                    # [обязат] ID пользователя (внешний ключ на users)
+
+
+# ============================================
+# 3. НАСТРОЙКИ
+# Связи: Student 1→1 StudentSettings
+#        Tutor 1→1 TutorSettings
+# ============================================
+
+class StudentSettings(SQLModel, table=True):
+    """Настройки ученика."""
+    __tablename__ = "student_settings"
+    id: Optional[int] = Field(default=None, primary_key=True)                    # [_авто_] ID настроек
+    student_id: int = Field(foreign_key="students.id", unique=True)              # [обязат] ID ученика (внешний ключ на students)
+
+    status: str = Field(default="ACTIVE", max_length=20)                         # [необяз] Статус активности: active/inactive
+    timezone_offset: int = Field(default=0)                                      # [необяз] Часовой пояс (смещение в часах от UTC)
+    schedule_view: str = Field(default="INFORMATIVE", max_length=20)             # [необяз] Вид расписания: informative/minimalistic
+
+
+class TutorSettings(SQLModel, table=True):
+    """Настройки репетитора."""
+    __tablename__ = "tutor_settings"
+    id: Optional[int] = Field(default=None, primary_key=True)                    # [_авто_] ID настроек
+    tutor_id: int = Field(foreign_key="tutors.id", unique=True)                  # [обязат] ID репетитора (внешний ключ на tutors)
+
+    hourly_rate: float = Field(default=0.0)                                      # [необяз] Стоимость занятия (руб/час)
+    discount: float = Field(default=0.0)                                         # [необяз] Скидка в процентах
+    timezone_offset: int = Field(default=0)                                      # [необяз] Часовой пояс (смещение в часах от UTC)
+    work_status: str = Field(default="WORKING", max_length=20)                   # [необяз] Статус работы: working/not_working
+    schedule_view: str = Field(default="INFORMATIVE", max_length=20)             # [необяз] Вид расписания: informative/minimalistic
+    allow_self_booking: bool = Field(default=True)                               # [необяз] Разрешить самостоятельную запись учеников
+    booking_lead_time_hours: int = Field(default=24)                             # [необяз] Запись возможна за N часов до начала урока
+    cancellation_lead_time_hours: int = Field(default=24)                        # [необяз] Отмена возможна за N часов до начала урока
+    notifications_enabled: bool = Field(default=True)                            # [необяз] Включены ли уведомления
+    notification_lead_time_hours: int = Field(default=24)                        # [необяз] Уведомление за N часов до начала урока
+    default_links: Optional[List[Dict[str, str]]] = Field(default=None, sa_type=JSON)  # [необяз] Ссылки по умолчанию [{"description": "...", "url": "..."}]
+
+
+# ============================================
+# 4. КОНФИГУРАЦИИ (связь ученик-репетитор)
+# Связи: Student 1→N Configuration (один ученик — много конфигураций)
+#        Tutor 1→N Configuration (один репетитор — много конфигураций)
+#        Реализует связь многие-ко-многим между учениками и репетиторами
+# ============================================
+
+class Configuration(SQLModel, table=True):
+    """Конфигурация связи ученик-репетитор."""
+    __tablename__ = "configurations"
+    id: Optional[int] = Field(default=None, primary_key=True)                    # [_авто_] ID конфигурации
+    student_id: int = Field(foreign_key="students.id")                           # [обязат] ID ученика (внешний ключ на students)
+    tutor_id: int = Field(foreign_key="tutors.id")                               # [обязат] ID репетитора (внешний ключ на tutors)
+
+    hourly_rate: float = Field(default=0.0)                                      # [необяз] Стоимость занятия (руб/час)
+    allow_self_booking: bool = Field(default=True)                               # [необяз] Разрешить самостоятельную запись ученика
+    booking_lead_time_hours: int = Field(default=24)                             # [необяз] Запись возможна за N часов до урока
+    cancellation_lead_time_hours: int = Field(default=24)                        # [необяз] Отмена возможна за N часов до урока
+    notifications_enabled: bool = Field(default=True)                            # [необяз] Включены ли уведомления
+    notification_lead_time_hours: int = Field(default=24)                        # [необяз] Уведомление за N часов до урока
+    default_links: Optional[List[Dict[str, str]]] = Field(default=None, sa_type=JSON)  # [необяз] Ссылки для занятий [{"description": "...", "url": "..."}]
+    allow_unpaid_lesson: bool = Field(default=False)                             # [необяз] Разрешить вход на урок без оплаты
+    student_notes: Optional[str] = None                                          # [необяз] Заметки репетитора об ученике
+
+    class Config:
+        __table_args__ = (
+            UniqueConstraint("student_id", "tutor_id", name="uq_student_tutor"),
+        )
+
+
+# ============================================
+# 5. БРОНИ (ПОВТОРЯЮЩИЕСЯ БЛОКИРОВКИ ВРЕМЕНИ)
+# Связи: Tutor 1→N Booking (один репетитор — много броней)
+# ============================================
+
+class Booking(SQLModel, table=True):
+    """Бронь — повторяющаяся блокировка времени репетитора."""
+    __tablename__ = "bookings"
+    id: Optional[int] = Field(default=None, primary_key=True)                    # [_авто_] ID брони
+    created_at: Optional[datetime] = Field(default_factory=datetime.now)         # [_авто_] Дата и время создания
+    updated_at: Optional[datetime] = Field(default_factory=datetime.now)         # [_авто_] Дата и время обновления
+
+    tutor_id: int = Field(foreign_key="tutors.id")                               # [обязат] ID репетитора (внешний ключ на tutors)
+    weekday: str = Field(max_length=20)                                          # [обязат] День недели
+    start_time: time                                                             # [обязат] Время начала
+    end_time: time                                                               # [обязат] Время окончания
+
+    access_rule: str = Field(default="EVERYONE", max_length=20)                  # [необяз] Правило доступа: nobody/all_except/only/everyone
+    access_targets: Optional[List[int]] = Field(default=None, sa_type=JSON)      # [необяз] Список ID учеников: для 'only' — разрешённые, для 'all_except' — исключённые
+    booking_metadata: Optional[Dict[str, Any]] = Field(default=None, sa_type=JSON)  # [необяз] Дополнительные данные
+
+
+# ============================================
+# 6. УРОКИ
+# Связи: Tutor 1→N Lesson (один репетитор — много уроков)
+#        Lesson 1→N LessonParticipant (один урок — много участников)
+#        Student 1→N LessonParticipant (один ученик — много участий)
+# ============================================
+
+class Lesson(SQLModel, table=True):
+    """Уроки."""
+    __tablename__ = "lessons"
+    id: Optional[int] = Field(default=None, primary_key=True)                    # [_авто_] ID урока
+    created_at: Optional[datetime] = Field(default_factory=datetime.now)         # [_авто_] Дата и время создания
+    updated_at: Optional[datetime] = Field(default_factory=datetime.now)         # [_авто_] Дата и время обновления
+
+    tutor_id: int = Field(foreign_key="tutors.id")                               # [обязат] ID репетитора (внешний ключ на tutors)
+    start_time: datetime                                                         # [обязат] Время начала
+    end_time: datetime                                                           # [обязат] Время окончания
+    created_by_id: int                                                           # [обязат] ID создателя (student.id или tutor.id)
+
+    is_group: bool = Field(default=False)                                        # [необяз] Групповой ли урок
+    lesson_settings: Optional[Dict[str, Any]] = Field(default=None, sa_type=JSON)  # [необяз] Настройки урока
+    lesson_links: Optional[List[Dict[str, str]]] = Field(default=None, sa_type=JSON)  # [необяз] Ссылки для занятий [{"description": "...", "url": "..."}]
+    lesson_metadata: Optional[Dict[str, Any]] = Field(default=None, sa_type=JSON)  # [необяз] Дополнительные данные
+    lesson_descriptions: Optional[str] = None                                    # [необяз] Описание урока
+
+
+class LessonParticipant(SQLModel, table=True):
+    """Участники урока."""
+    __tablename__ = "lesson_participants"
+    id: Optional[int] = Field(default=None, primary_key=True)                    # [_авто_] ID записи
+    created_at: Optional[datetime] = Field(default_factory=datetime.now)         # [_авто_] Дата и время создания
+    updated_at: Optional[datetime] = Field(default_factory=datetime.now)         # [_авто_] Дата и время обновления
+
+    lesson_id: int = Field(foreign_key="lessons.id")                             # [обязат] ID урока (внешний ключ на lessons)
+    student_id: int = Field(foreign_key="students.id")                           # [обязат] ID ученика (внешний ключ на students)
+
+    participant_settings: Optional[Dict[str, Any]] = Field(default=None, sa_type=JSON)  # [необяз] Индивидуальные настройки участника
+    participant_metadata: Optional[Dict[str, Any]] = Field(default=None, sa_type=JSON)  # [необяз] Дополнительные данные
+
+    class Config:
+        __table_args__ = (
+            UniqueConstraint("lesson_id", "student_id", name="uq_lesson_participant"),
+        )
+
+
+# ============================================
+# 7. ТЕСТОВЫЕ МОДЕЛИ
+# ============================================
+
+class DemoUser(SQLModel, table=True):
+    """Тестовый пользователь (для отладки CRUD)."""
+    __tablename__ = "demo_users"
+    id: Optional[int] = Field(default=None, primary_key=True)                    # [_авто_] ID
+    name: str = Field(max_length=255)                                            # [обязат] Имя
+    age: int                                                                     # [обязат] Возраст
+    email: str = Field(max_length=255, unique=True)                              # [обязат] Электронная почта (уникальная)
+
+
+class DemoProduct(SQLModel, table=True):
+    """Тестовый продукт (для отладки CRUD)."""
+    __tablename__ = "demo_products"
+    id: Optional[int] = Field(default=None, primary_key=True)                    # [_авто_] ID
+    name: str = Field(max_length=255)                                            # [обязат] Название
+    price: float                                                                 # [обязат] Цена
+    quantity: int                                                                # [обязат] Количество
+
+
+class model_test(SQLModel, table=True):
+    """Тестовая модель для нагрузочных тестов."""
+    __tablename__ = "model_test"
+    id: Optional[int] = Field(default=None, primary_key=True)                    # [_авто_] ID
+    val: int = Field(default=0)                                                  # [необяз] Значение
+    name: str = Field(default="")                                                # [необяз] Имя
+
+
+# ============================================
+# 8. АВТОСБОР СХЕМ
+# ============================================
+
+def get_all_schemas():
+    """Автоматически собирает все SQLModel-таблицы из текущего модуля."""
+    import sys
+    module = sys.modules[__name__]
+    schemas = {}
+    for attr_name in dir(module):
+        attr = getattr(module, attr_name)
+        if (
+            isinstance(attr, type) and
+            issubclass(attr, SQLModel) and
+            attr != SQLModel and
+            hasattr(attr, '__table__')
+        ):
+            schemas[attr.__tablename__] = attr
+    return schemas
+
+Файл: C:\Users\Arseniy\Desktop\event_infra_repo\infrastructure\templates\run_infrastructure_template.py
+Содержимое:
+"""Скрипт запуска инфраструктурного слоя.
+
+Перед запуском можно задать переменные окружения или создать файл .env
+(рекомендуется). Значения из .env подхватываются автоматически,
+но переменные окружения имеют приоритет.
+"""
+
+import asyncio
+import logging
+import os
+import sys
+from pathlib import Path
+
+# Загружаем .env, если он есть в текущей директории
+from infrastructure.config_loader import load_dotenv
+
+load_dotenv(str(Path(__file__).parent / ".env"))
+
+logging.basicConfig(level=logging.INFO)
+
+# Добавляем текущую директорию в sys.path, чтобы импортировался models.py
+sys.path.insert(0, str(Path(__file__).parent))
+
+from models import get_all_schemas
+from infrastructure.db_migrator import run_migration
+from infrastructure.event_infrastructure import create_pipeline, shutdown_pipeline
+from infrastructure.event_infrastructure.config import ChannelConfig, CacheConfig
+
+ALL_SCHEMAS = get_all_schemas()
+
+# --- Чтение параметров из окружения (с дефолтами из .env, если заданы) ---
+def _int_env(name: str, default: int) -> int:
+    val = os.getenv(name)
+    return int(val) if val is not None else default
+
+def _float_env(name: str, default: float) -> float:
+    val = os.getenv(name)
+    return float(val) if val is not None else default
+
+def _bool_env(name: str, default: bool) -> bool:
+    val = os.getenv(name)
+    if val is None:
+        return default
+    return val.lower() in ("1", "true", "yes", "on")
+
+DB_URL = os.getenv("DB_URL", "postgresql://postgres:123@localhost:5432/Proj_v2")
+DB_URL_ASYNC = os.getenv("DB_URL_ASYNC", "postgresql+asyncpg://postgres:123@localhost:5432/Proj_v2")
+
+CHANNELS = {
+    "read": ChannelConfig(
+        pool_size=_int_env("READ_POOL_SIZE", 39),
+        max_overflow=_int_env("READ_MAX_OVERFLOW", 10),
+        queue_maxsize=_int_env("READ_QUEUE_MAXSIZE", 50000),
+    ),
+    "write": ChannelConfig(
+        pool_size=_int_env("WRITE_POOL_SIZE", 60),
+        max_overflow=_int_env("WRITE_MAX_OVERFLOW", 5),
+        queue_maxsize=_int_env("WRITE_QUEUE_MAXSIZE", 50000),
+    ),
+    "admin": ChannelConfig(
+        pool_size=_int_env("ADMIN_POOL_SIZE", 1),
+        max_overflow=_int_env("ADMIN_MAX_OVERFLOW", 0),
+        queue_maxsize=_int_env("ADMIN_QUEUE_MAXSIZE", 5000),
+    ),
+}
+
+POOL_TIMEOUT = _int_env("POOL_TIMEOUT", 30)
+DEFAULT_TIMEOUT = _float_env("DEFAULT_TIMEOUT", 30.0)
+SHUTDOWN_TIMEOUT = _float_env("SHUTDOWN_TIMEOUT", 10.0)
+MAX_CONCURRENCY = _int_env("MAX_CONCURRENCY", 100000)
+
+CACHE_ENABLED = _bool_env("CACHE_ENABLED", True)
+CACHE_TTL_SECONDS = _float_env("CACHE_TTL_SECONDS", 3.0)
+CACHE_MAX_SIZE = _int_env("CACHE_MAX_SIZE", 5000)
+
+router = None
+
+
+async def metrics_loop(router, interval=1.0):
+    """Бесконечный цикл вывода метрик."""
+    while True:
+        await asyncio.sleep(interval)
+        os.system("cls" if os.name == "nt" else "clear")
+        router.print_metrics(full=True)
+
+
+async def main():
+    global router
+
+    print("=" * 50)
+    print("ЗАПУСК ИНФРАСТРУКТУРЫ")
+    print("=" * 50)
+
+    print("\n1. Проверка и применение миграций...")
+    schema_path = Path(__file__).parent / "models.py"
+    alembic_path = Path(__file__).parent / "alembic"
+    success = run_migration(db_url=DB_URL, schema_path=str(schema_path), alembic_dir=str(alembic_path))
+    if not success:
+        print("Ошибка миграций")
+        sys.exit(1)
+    print("Миграции в порядке")
+
+    print("\n2. Создание event_infrastructure...")
+    router = await create_pipeline(
+        db_url=DB_URL_ASYNC,
+        channels=CHANNELS,
+        schemas=ALL_SCHEMAS,
+        exclude_tables={"alembic_version"},
+        pool_timeout=POOL_TIMEOUT,
+        default_timeout=DEFAULT_TIMEOUT,
+        shutdown_timeout=SHUTDOWN_TIMEOUT,
+        cache=CacheConfig(enabled=CACHE_ENABLED, ttl_seconds=CACHE_TTL_SECONDS, max_size=CACHE_MAX_SIZE),
+        max_concurrency=MAX_CONCURRENCY,
+    )
+    print("Pipeline готов")
+
+    print("\n3. Мониторинг инфраструктуры...")
+    print("   Нажмите Ctrl+C для остановки")
+    print("=" * 50)
+
+    try:
+        await metrics_loop(router)
+    except KeyboardInterrupt:
+        print("\nОстановка...")
+    finally:
+        router.print_metrics(full=False)
+        await shutdown_pipeline(router)
+        print("Проект остановлен")
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nЗавершено.")
+
+
+Всего обработано файлов: 44

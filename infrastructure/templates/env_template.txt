@@ -1,0 +1,45 @@
+# ============================================================
+# Конфигурация инфраструктурного слоя
+# Скопируйте нужные строки в .env или отредактируйте этот файл,
+# если он уже создан командой infra-init.
+# ============================================================
+
+# --- Подключение к базе данных ---
+# Синхронный URL (используется для миграций)
+DB_URL=postgresql://postgres:123@localhost:5432/Proj_v2
+
+# Асинхронный URL (используется для работы event_infrastructure)
+DB_URL_ASYNC=postgresql+asyncpg://postgres:123@localhost:5432/Proj_v2
+
+# --- Настройки канала read ---
+READ_POOL_SIZE=39
+READ_MAX_OVERFLOW=10
+READ_QUEUE_MAXSIZE=50000
+
+# --- Настройки канала write ---
+WRITE_POOL_SIZE=60
+WRITE_MAX_OVERFLOW=5
+WRITE_QUEUE_MAXSIZE=50000
+
+# --- Настройки канала admin ---
+ADMIN_POOL_SIZE=1
+ADMIN_MAX_OVERFLOW=0
+ADMIN_QUEUE_MAXSIZE=5000
+
+# --- Прочие параметры pipeline ---
+# Таймаут ожидания соединения из пула (сек)
+POOL_TIMEOUT=30
+
+# Таймаут выполнения задачи по умолчанию (сек)
+DEFAULT_TIMEOUT=30.0
+
+# Таймаут graceful shutdown (сек)
+SHUTDOWN_TIMEOUT=10.0
+
+# Максимальная конкурентность (0 - без ограничений)
+MAX_CONCURRENCY=100000
+
+# --- Кеш ---
+CACHE_ENABLED=True
+CACHE_TTL_SECONDS=3.0
+CACHE_MAX_SIZE=5000

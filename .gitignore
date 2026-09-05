@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+.env
+*.log
+
+# Alembic (локальные миграции, не должны попадать в пакет)
+alembic/
+!infrastructure/db_migrator/alembic/   # исключаем шаблонные файлы из пакета
+# Но в корне проекта alembic/ – это пользовательские данные, не включаем
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
