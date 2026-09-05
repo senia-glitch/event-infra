@@ -2,10 +2,10 @@
 
 import asyncio
 import os
-import importlib.util
+import sys
+import shutil
 from pathlib import Path
 from importlib import resources
-import shutil
 
 from infrastructure.db_migrator import run_migration
 from infrastructure.event_infrastructure import create_pipeline, shutdown_pipeline
@@ -14,23 +14,29 @@ from . import run_all
 
 
 async def _run_tests_async(db_url: str, db_url_async: str) -> bool:
-    """Запускает тесты асинхронно."""
-    # 1. Загружаем модели из шаблона
+    # 1. Применяем миграции (загружает модуль models_template)
     schema_path = resources.files("infrastructure.templates") / "models_template.py"
-    spec = importlib.util.spec_from_file_location("models_template", schema_path)
-    models = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(models)
-    schemas = models.get_all_schemas()
-
-    # 2. Применяем миграции к тестовой БД (создаём папку alembic в текущей директории)
     alembic_dir = Path.cwd() / ".test_alembic"
+    
+    # Удаляем старую папку alembic, чтобы избежать конфликтов
+    if alembic_dir.exists():
+        shutil.rmtree(alembic_dir)
+    
+    # Запускаем миграцию – она загрузит модели в sys.modules
     run_migration(db_url, str(schema_path), alembic_dir=str(alembic_dir))
 
-    # 3. Создаём каналы
+    # 2. Получаем загруженный модуль из sys.modules
+    # Имя модуля = имя файла без расширения: 'models_template'
+    models = sys.modules.get('models_template')
+    if models is None:
+        raise RuntimeError("Модуль models_template не загружен")
+    schemas = models.get_all_schemas()
+
+    # 3. Создаём каналы с увеличенными пулами
     channels = {
-        "read": ChannelConfig(pool_size=5, max_overflow=2, queue_maxsize=100),
-        "write": ChannelConfig(pool_size=5, max_overflow=2, queue_maxsize=100),
-        "admin": ChannelConfig(pool_size=2, max_overflow=0, queue_maxsize=50),
+        "read": ChannelConfig(pool_size=10, max_overflow=5, queue_maxsize=200),
+        "write": ChannelConfig(pool_size=10, max_overflow=5, queue_maxsize=200),
+        "admin": ChannelConfig(pool_size=5, max_overflow=2, queue_maxsize=100),
     }
 
     # 4. Создаём роутер
@@ -43,6 +49,8 @@ async def _run_tests_async(db_url: str, db_url_async: str) -> bool:
         default_timeout=10.0,
         shutdown_timeout=5.0,
         max_concurrency=50,
+        pool_recycle=60,
+        pool_pre_ping=True,
     )
 
     # 5. Запускаем все тесты
