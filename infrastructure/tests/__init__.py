@@ -9,6 +9,7 @@ from importlib import resources
 from infrastructure.db_migrator import run_migration
 from infrastructure.event_infrastructure import create_pipeline, shutdown_pipeline
 from infrastructure.event_infrastructure.config import ChannelConfig
+from infrastructure.event_infrastructure.config import CacheConfig
 from . import run_all
 
 
