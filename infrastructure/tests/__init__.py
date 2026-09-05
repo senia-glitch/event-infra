@@ -13,26 +13,23 @@ from infrastructure.event_infrastructure.config import ChannelConfig
 from . import run_all
 
 
-async def _run_tests_async(db_url: str, db_url_async: str) -> bool:
+async def _run_tests_async(db_url: str, db_url_async: str, verbose: bool = False) -> bool:
     # 1. Применяем миграции (загружает модуль models_template)
     schema_path = resources.files("infrastructure.templates") / "models_template.py"
     alembic_dir = Path.cwd() / ".test_alembic"
     
-    # Удаляем старую папку alembic, чтобы избежать конфликтов
     if alembic_dir.exists():
         shutil.rmtree(alembic_dir)
     
-    # Запускаем миграцию – она загрузит модели в sys.modules
     run_migration(db_url, str(schema_path), alembic_dir=str(alembic_dir))
 
     # 2. Получаем загруженный модуль из sys.modules
-    # Имя модуля = имя файла без расширения: 'models_template'
     models = sys.modules.get('models_template')
     if models is None:
         raise RuntimeError("Модуль models_template не загружен")
     schemas = models.get_all_schemas()
 
-    # 3. Создаём каналы с увеличенными пулами
+    # 3. Создаём каналы
     channels = {
         "read": ChannelConfig(pool_size=10, max_overflow=5, queue_maxsize=200),
         "write": ChannelConfig(pool_size=10, max_overflow=5, queue_maxsize=200),
@@ -53,8 +50,8 @@ async def _run_tests_async(db_url: str, db_url_async: str) -> bool:
         pool_pre_ping=True,
     )
 
-    # 5. Запускаем все тесты
-    success = await run_all.run(router)
+    # 5. Запускаем все тесты с verbose
+    success = await run_all.run(router, verbose=verbose)
 
     # 6. Завершаем работу
     await shutdown_pipeline(router)
@@ -66,7 +63,7 @@ async def _run_tests_async(db_url: str, db_url_async: str) -> bool:
     return success
 
 
-def run_tests(db_url: str = None, db_url_async: str = None) -> bool:
+def run_tests(db_url: str = None, db_url_async: str = None, verbose: bool = False) -> bool:
     """
     Запускает все тесты.
 
@@ -81,6 +78,6 @@ def run_tests(db_url: str = None, db_url_async: str = None) -> bool:
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        return loop.run_until_complete(_run_tests_async(db_url, db_url_async))
+        return loop.run_until_complete(_run_tests_async(db_url, db_url_async, verbose))
     finally:
         loop.close()
