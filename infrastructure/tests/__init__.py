@@ -17,22 +17,37 @@ async def _run_tests_async(db_url: str, db_url_async: str, verbose: bool = False
     # 1. Загружаем модели из шаблона
     schema_path = resources.files("infrastructure.templates") / "models_template.py"
 
-    # 2. Применяем миграции (используем исходный run_migration без alembic_dir)
-    run_migration(db_url, str(schema_path), alembic_dir=str(Path.cwd() / "alembic"))
-    # 3. Получаем загруженный модуль из sys.modules
+    # 2. Определяем путь к папке alembic: ищем в текущей директории,
+    #    если нет — создаём (или используем встроенную как fallback)
+    import os
+    from pathlib import Path
+    cwd = Path.cwd()
+    alembic_dir = cwd / "alembic"
+    if not alembic_dir.exists():
+        # Если папки нет, создаём её (как делает infra init)
+        alembic_dir.mkdir(exist_ok=True)
+        # Создаём минимальные файлы (можно взять из шаблона)
+        (alembic_dir / "versions").mkdir(exist_ok=True)
+        # Скопировать env.py и script.py.mako из пакета, если нужно
+        # Но проще: использовать встроенную папку как fallback
+        # Для этого мы передадим в run_migration None, и он сам выберет встроенную
+        alembic_dir = None  # fallback на встроенную
+
+    # 3. Применяем миграции с найденным alembic_dir
+    run_migration(db_url, str(schema_path), alembic_dir=str(alembic_dir) if alembic_dir else None)
+
+    # 4. Далее — как было...
     models = sys.modules.get('models_template')
     if models is None:
         raise RuntimeError("Модуль models_template не загружен")
     schemas = models.get_all_schemas()
 
-    # 4. Создаём каналы с параметрами из исходного проекта
     channels = {
         "read": ChannelConfig(pool_size=39, max_overflow=10, queue_maxsize=50000),
         "write": ChannelConfig(pool_size=60, max_overflow=5, queue_maxsize=50000),
         "admin": ChannelConfig(pool_size=1, max_overflow=0, queue_maxsize=5000),
     }
 
-    # 5. Создаём роутер с параметрами из исходного проекта
     router = await create_pipeline(
         db_url=db_url_async,
         channels=channels,
@@ -47,12 +62,8 @@ async def _run_tests_async(db_url: str, db_url_async: str, verbose: bool = False
         cache=CacheConfig(enabled=True, ttl_seconds=10.0, max_size=1000),
     )
 
-    # 6. Запускаем все тесты
     success = await run_all.run(router, verbose=verbose)
-
-    # 7. Завершаем работу
     await shutdown_pipeline(router)
-
     return success
 
 
