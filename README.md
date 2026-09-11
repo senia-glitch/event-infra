@@ -1,6 +1,6 @@
 event-infra
 Инфраструктурный слой для проектов на PostgreSQL + SQLModel.
-Поставляется как устанавливаемый Python-пакет. Обеспечивает миграции, асинхронный доступ к БД с пулами соединений, очередями задач, универсальным CRUD, кешированием и мониторингом. Не требует веб-сервера — запускается как отдельный процесс.
+Поставляется как устанавливаемый Python-пакет. Обеспечивает миграции, асинхронный доступ к БД с пулами соединений, очередями задач, универсальным CRUD, кешированием и мониторингом. Не требует веб-сервера — встраивается в ваш код как библиотека.
 
 🚀 Возможности
 Миграции – автоматическое сравнение SQLModel-моделей с БД и применение изменений (на основе Alembic).
@@ -50,7 +50,7 @@ infra-init
 
 models.py – шаблон SQLModel-моделей (источник истины для схемы БД).
 
-run_infrastructure.py – скрипт запуска инфраструктуры (миграции + EventRouter + метрики).
+run_infrastructure.py – модуль с функцией start_infrastructure() для встраивания инфраструктуры в ваш код (миграции + EventRouter).
 
 .infra.env – файл конфигурации со всеми параметрами и русскими комментариями.
 
@@ -66,7 +66,6 @@ infra-init --force
 
 bash
 export INFRA_ENV_FILE=myconfig.env
-python run_infrastructure.py
 Основные параметры (подробно описаны в самом файле):
 
 Подключение к БД – DB_URL (синхронный, для миграций), DB_URL_ASYNC (асинхронный, для работы).
@@ -92,18 +91,37 @@ REPORT_MAX_OVERFLOW=2
 REPORT_QUEUE_MAXSIZE=100
 После запуска вы сможете использовать его в методах router.read(..., channel="report") или router.execute("report", "SELECT ...").
 
-🏃 Запуск инфраструктуры
-bash
-python run_infrastructure.py
-Что произойдёт:
+🏃 Использование в своём коде
+После `infra-init` в корне проекта появится модуль `run_infrastructure.py`. Он предоставляет асинхронную функцию `start_infrastructure()`, которая:
 
-Проверка и применение миграций (если модели изменились относительно БД).
+- загружает настройки из `.infra.env`,
+- применяет миграции к БД,
+- создаёт и запускает `EventRouter`,
+- возвращает готовый роутер.
 
-Создание EventRouter с параметрами из .infra.env.
+Минимальный пример:
 
-Запуск цикла вывода метрик (обновление каждую секунду).
+```python
+import asyncio
+from run_infrastructure import start_infrastructure
 
-Остановка – Ctrl+C. Произойдёт graceful shutdown.
+async def main():
+    router = await start_infrastructure()
+    try:
+        user = await router.create("users", {"name": "Alice"})
+        data = await router.read("users", 1)
+        metrics = router.get_metrics()
+        print(metrics.total_processed)
+    finally:
+        await router.shutdown()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+Остановка выполняется через await router.shutdown() — это гарантирует graceful shutdown (доработку текущих задач и закрытие пулов).
+
+Функция start_infrastructure() не принимает аргументов: все настройки читаются из .infra.env (или файла, указанного в INFRA_ENV_FILE), а пути к models.py и alembic/ определяются относительно самого модуля run_infrastructure.py.
+
+Если миграции не удалось применить или не заданы DB_URL / DB_URL_ASYNC, функция бросает RuntimeError.
 
 🧰 Команды
 Пакет предоставляет три консольные команды:
@@ -130,25 +148,31 @@ infra-reset postgresql://user:pass@localhost:5432/dbname [--alembic-dir ./alembi
 Если папка alembic находится не в текущей директории, укажите её явно через --alembic-dir.
 
 💻 Использование EventRouter
-После создания роутера (router = await create_pipeline(...)) вы можете выполнять операции.
+После получения роутера (router = await start_infrastructure() или router = await create_pipeline(...)) вы можете выполнять операции.
 
 CRUD
 python
-# Создание
+
+Создание
 result = await router.create("user", {"name": "Alice", "email": "a@mail.com", "age": 25}, channel="write")
-# Чтение
+
+Чтение
 result = await router.read("user", 1, channel="read")
-# Обновление
+
+Обновление
 result = await router.update("user", 1, {"age": 26}, channel="write")
-# Удаление
+
+Удаление
 result = await router.delete("user", 1, channel="write")
 Канал указывается явно. По умолчанию для create/update/delete используется write, для read – read.
 
 Произвольный SQL
 python
-# Через канал read
-result = await router.execute("read", "SELECT * FROM \"user\" WHERE age > :min", {"min": 18})
-# Через канал report
+
+Через канал read
+result = await router.execute("read", "SELECT * FROM "user" WHERE age > :min", {"min": 18})
+
+Через канал report
 result = await router.custom("SELECT COUNT(*) FROM orders", channel="report")
 Повторные попытки (retry)
 Глобальные настройки задаются в .infra.env.
@@ -163,7 +187,8 @@ result = await router.read("user", 1, retry=RetryConfig(max_retries=5, delay_sec
 Для конкретного вызова можно переопределить:
 
 python
-# Не использовать кеш для этого чтения
+
+Не использовать кеш для этого чтения
 result = await router.read("user", 1, cache=False)
 📊 Мониторинг
 Встроенный мониторинг позволяет в реальном времени наблюдать за состоянием инфраструктуры.
@@ -186,18 +211,20 @@ result = await router.read("user", 1, cache=False)
 
 Мониторинг подключается к эндпоинтам /system/stats и /system/scenario-metrics вашего веб-сервера, поэтому его можно использовать как в локальной разработке, так и на удалённых серверах.
 
+Если веб-сервер не используется, метрики можно получать напрямую из роутера: router.get_metrics() (возвращает InfrastructureMetrics) или router.print_metrics(full=True) (печатает в stdout).
+
 🧹 Сброс и очистка
 Команда infra-reset выполняет полную очистку:
 
-Удаляет все файлы миграций из alembic/versions/ (кроме __init__.py).
+Удаляет все файлы миграций из alembic/versions/ (кроме init.py).
 
-Удаляет папки __pycache__ внутри alembic.
+Удаляет папки pycache внутри alembic.
 
 Очищает кеш загруженных модулей Python.
 
 Удаляет все таблицы в публичной схеме БД.
 
-После сброса можно снова запустить run_infrastructure.py – миграции будут созданы заново, и БД будет построена с нуля.
+После сброса можно снова запустить приложение с start_infrastructure() – миграции будут созданы заново, и БД будет построена с нуля.
 
 Внимание: операция необратима! Убедитесь, что у вас есть бэкап данных, если они важны.
 
@@ -205,13 +232,16 @@ result = await router.read("user", 1, cache=False)
 text
 event-infra/
 ├── infrastructure/
-│   ├── __init__.py
-│   ├── cli.py                  # точки входа команд
-│   ├── config_loader.py        # загрузка .env/.infra.env
-│   ├── monitor.py              # мониторинг
-│   ├── templates/              # шаблоны для infra-init
-│   ├── db_migrator/            # утилита миграций
-│   └── event_infrastructure/   # ядро (пулы, очереди, CRUD)
+│ ├── init.py
+│ ├── cli.py # точки входа команд
+│ ├── config_loader.py # загрузка .env/.infra.env
+│ ├── monitor.py # мониторинг
+│ ├── templates/ # шаблоны для infra-init
+│ │ ├── env_template.txt
+│ │ ├── models_template.py
+│ │ └── run_infrastructure_template.py # модуль с start_infrastructure()
+│ ├── db_migrator/ # утилита миграций
+│ └── event_infrastructure/ # ядро (пулы, очереди, CRUD)
 ├── pyproject.toml
 └── README.md
 🔧 Требования
@@ -222,32 +252,59 @@ PostgreSQL (9.6+)
 Установленный пакет (см. раздел «Установка»)
 
 📝 Пример использования
-1. Установка пакета
+
+Установка пакета
 
 bash
 pip install git+https://github.com/senia-glitch/event-infra.git
-2. Инициализация
+
+Инициализация
 
 bash
 mkdir my_project && cd my_project
 infra-init
-3. Настройка БД
+
+Настройка БД
 Отредактировать .infra.env, указать свои DB_URL и DB_URL_ASYNC.
 
-4. Запуск
+Использование в своём коде
+В любом модуле вашего приложения:
 
-bash
-python run_infrastructure.py
-5. Использование в коде (например, в другом модуле вашего приложения)
+python
+import asyncio
+from run_infrastructure import start_infrastructure
+
+async def main():
+    router = await start_infrastructure()
+    try:
+        user = await router.create("users", {
+            "role_id": 1,
+            "username": "alice",
+            "personal_number": "PN001",
+            "password_hash": "hash",
+            "full_name": "Alice Test",
+            "email": "alice@test.local",
+        })
+        print(user.data)
+
+        data = await router.read("users", user.data[0]["id"])
+        print(data.data)
+    finally:
+        await router.shutdown()
+
+asyncio.run(main())
+Использование create_pipeline напрямую (для продвинутых сценариев)
+Если вы хотите сами управлять конфигурацией и не использовать .infra.env:
 
 python
 from infrastructure.event_infrastructure import create_pipeline
 from models import get_all_schemas
 
 router = await create_pipeline(
-    db_url="postgresql+asyncpg://...",
-    schemas=get_all_schemas(),
-    # параметры из .infra.env автоматически подхватятся
+db_url="postgresql+asyncpg://...",
+schemas=get_all_schemas(),
+
+параметры можно передать явно
 )
 user = await router.read("user", 42)
 📄 Лицензия

@@ -135,7 +135,11 @@ def init():
     ok4 = _create_alembic_dir(args.force)
 
     if ok1 and ok2 and ok3 and ok4:
-        print("\nГотово. Теперь можно запустить инфраструктуру: python run_infrastructure.py")
+        print("\nГотово. Теперь вы можете использовать инфраструктуру в своём коде:")
+        print("    from run_infrastructure import start_infrastructure")
+        print("    router = await start_infrastructure()")
+        print("    # ... работа с router ...")
+        print("    await router.shutdown()")
     else:
         print("\nИнициализация завершена с предупреждениями.")
 
@@ -183,6 +187,10 @@ def help_command():
   infra reset <db_url> [--alembic-dir]  Полный сброс БД и удаление миграций
   infra test [-v, --verbose]        Запуск встроенных тестов (требуется тестовая БД)
   infra help                        Показать эту справку
+
+После инициализации используйте в своём коде:
+    from run_infrastructure import start_infrastructure
+    router = await start_infrastructure()
 
 Для обратной совместимости также доступны отдельные команды:
   infra-init, infra-monitor, infra-reset
