@@ -13,21 +13,47 @@
     await router.shutdown()
 """
 
+from __future__ import annotations
+
+import asyncio
 import os
 import sys
+import logging
 from pathlib import Path
+from typing import Callable, Optional, TYPE_CHECKING
 
-from infrastructure.config_loader import load_dotenv
+from infrastructure.config_loader import load_config_from_env
 from infrastructure.db_migrator import run_migration
 from infrastructure.event_infrastructure import create_pipeline
-from infrastructure.event_infrastructure.config import ChannelConfig, RetryConfig, CacheConfig
+
+if TYPE_CHECKING:
+    from infrastructure.event_infrastructure.router.router import EventRouter
 
 
-async def start_infrastructure():
+def _resolve_sync_db_url(db_url: str, driver: str) -> str:
+    """Подставляет sync-драйвер в URL, если он не указан явно.
+
+    Если db_url уже содержит схему вида postgresql+xxx://, URL возвращается как есть.
+    Если db_url = postgresql://..., к нему дописывается +{driver}.
+    """
+    scheme, rest = db_url.split("://", 1)
+    if "+" not in scheme:
+        return f"{scheme}+{driver}://{rest}"
+    return db_url
+
+
+async def start_infrastructure(
+    schemas_fn: Optional[Callable[[], dict]] = None,
+) -> "EventRouter":
     """Запускает инфраструктуру и возвращает готовый EventRouter.
 
     Все настройки читаются из .infra.env (или файла, указанного через INFRA_ENV_FILE).
     Пути к models.py и alembic/ определяются относительно расположения этого модуля.
+
+    Args:
+        schemas_fn: Опциональная функция для получения схем.
+            Если передана — используется вместо get_all_schemas() из models.py.
+            Должна возвращать dict {"table_name": SQLModel_class, ...}.
 
     Returns:
         EventRouter: готовый к использованию роутер.
@@ -35,80 +61,166 @@ async def start_infrastructure():
     Raises:
         RuntimeError: если не удалось применить миграции или не заданы URL БД.
     """
-    # 1. Загрузка конфигурации
-    config_file = os.getenv("INFRA_ENV_FILE", ".infra.env")
-    load_dotenv(config_file)
+    # 1. Настройка логирования
+    log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+    numeric_level = getattr(logging, log_level, logging.INFO)
+    logging.basicConfig(
+        level=numeric_level,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
 
+    # 2. Загрузка конфигурации из env
+    config = load_config_from_env(base_dir=Path(__file__).parent)
+
+    if not config.db_url:
+        raise RuntimeError("Не задан DB_URL_ASYNC в .infra.env")
+
+    # 3. Определяем sync URL для миграций
+    db_url_sync = os.getenv("DB_URL")
+    if not db_url_sync:
+        raise RuntimeError("Не задан DB_URL в .infra.env (нужен для миграций)")
+
+    sync_driver = os.getenv("DB_SYNC_DRIVER", "psycopg")
+    db_url_sync = _resolve_sync_db_url(db_url_sync, sync_driver)
+
+    # 4. Миграции
     base_dir = Path(__file__).parent
     models_path = base_dir / "models.py"
     alembic_dir = base_dir / "alembic"
 
-    db_url = os.getenv("DB_URL")
-    db_url_async = os.getenv("DB_URL_ASYNC")
-
-    if not db_url or not db_url_async:
-        raise RuntimeError("Не заданы DB_URL и/или DB_URL_ASYNC в .infra.env")
-
-    # 2. Миграции
     success = run_migration(
-        db_url=db_url,
+        db_url=db_url_sync,
         schema_path=str(models_path),
         alembic_dir=str(alembic_dir),
     )
     if not success:
         raise RuntimeError("Не удалось применить миграции. Проверьте настройки БД и models.py")
 
-    # 3. Получение схем из models.py (модуль уже загружен run_migration)
-    module_name = models_path.stem
-    models_module = sys.modules.get(module_name)
-    if models_module is None:
-        raise RuntimeError(f"Модуль {module_name} не был загружен после миграции")
-    if not hasattr(models_module, "get_all_schemas"):
-        raise AttributeError(f"В {models_path} отсутствует функция get_all_schemas()")
-    schemas = models_module.get_all_schemas()
+    # 5. Получение схем
+    if schemas_fn is not None:
+        schemas = schemas_fn()
+    else:
+        module_name = models_path.stem
+        models_module = sys.modules.get(module_name)
+        if models_module is None:
+            raise RuntimeError(f"Модуль {module_name} не был загружен после миграции")
+        if not hasattr(models_module, "get_all_schemas"):
+            raise AttributeError(f"В {models_path} отсутствует функция get_all_schemas()")
+        schemas = models_module.get_all_schemas()
 
-    # 4. Построение конфигурации каналов
-    channel_names = [
-        name.strip()
-        for name in os.getenv("CHANNELS", "read,write,admin").split(",")
-        if name.strip()
-    ]
-    channels = {}
-    for name in channel_names:
-        prefix = name.upper()
-        channels[name] = ChannelConfig(
-            pool_size=int(os.getenv(f"{prefix}_POOL_SIZE", 10)),
-            max_overflow=int(os.getenv(f"{prefix}_MAX_OVERFLOW", 5)),
-            queue_maxsize=int(os.getenv(f"{prefix}_QUEUE_MAXSIZE", 1000)),
-        )
+    # 6. Таблицы для игнорирования
+    exclude_raw = os.getenv("EXCLUDE_TABLES", "alembic_version")
+    exclude_tables = {t.strip() for t in exclude_raw.split(",") if t.strip()}
 
-    # 5. Retry и Cache
-    retry = RetryConfig(
-        max_retries=int(os.getenv("RETRY_MAX_RETRIES", 3)),
-        delay_seconds=float(os.getenv("RETRY_DELAY_SECONDS", 0.5)),
-        backoff_multiplier=float(os.getenv("RETRY_BACKOFF_MULTIPLIER", 2.0)),
-    )
-
-    cache = CacheConfig(
-        enabled=os.getenv("CACHE_ENABLED", "True").lower() in ("1", "true", "yes", "on"),
-        ttl_seconds=float(os.getenv("CACHE_TTL_SECONDS", 3.0)),
-        max_size=int(os.getenv("CACHE_MAX_SIZE", 5000)),
-    )
-
-    # 6. Создание и запуск pipeline
+    # 7. Создание pipeline
     router = await create_pipeline(
-        db_url=db_url_async,
-        channels=channels,
+        db_url=config.db_url,
+        channels=config.channels,
         schemas=schemas,
-        exclude_tables={"alembic_version"},
-        pool_recycle=int(os.getenv("POOL_RECYCLE", 3600)),
-        pool_pre_ping=os.getenv("POOL_PRE_PING", "True").lower() in ("1", "true", "yes", "on"),
-        pool_timeout=int(os.getenv("POOL_TIMEOUT", 30)),
-        default_timeout=float(os.getenv("DEFAULT_TIMEOUT", 30.0)),
-        shutdown_timeout=float(os.getenv("SHUTDOWN_TIMEOUT", 10.0)),
-        max_concurrency=int(os.getenv("MAX_CONCURRENCY", 100000)),
-        retry=retry,
-        cache=cache,
+        exclude_tables=exclude_tables,
+        pool_recycle=config.pool_recycle,
+        pool_pre_ping=config.pool_pre_ping,
+        pool_timeout=config.pool_timeout,
+        default_timeout=config.default_timeout,
+        shutdown_timeout=config.shutdown_timeout,
+        max_concurrency=config.max_concurrency,
+        metrics_enabled=config.metrics_enabled,
+        retry=config.retry,
+        cache=config.cache,
     )
 
     return router
+
+
+async def _main(run_tests: bool = False):
+    if run_tests and not _run_tests():
+        return
+
+    router = await start_infrastructure()
+    print("Инфраструктура запущена. Нажмите Ctrl+C для остановки.")
+    try:
+        while True:
+            await asyncio.sleep(1)
+    except asyncio.CancelledError:
+        pass
+    finally:
+        await router.shutdown()
+
+
+def _run_tests() -> bool:
+    """Запускает тесты перед стартом инфраструктуры.
+
+    Returns:
+        True если тесты прошли (или пропущены), False если упали.
+    """
+    import subprocess
+    import infrastructure
+
+    test_dir = Path(infrastructure.__file__).parent / "tests"
+
+    if not test_dir.exists():
+        print("Тесты не найдены, пропуск.")
+        return True
+
+    # Читаем TEST_DB_URL_ASYNC из .infra.env напрямую (без load_dotenv чтобы не засорять окружение)
+    test_db_url = os.getenv("TEST_DB_URL_ASYNC")
+    if not test_db_url:
+        env_file = Path(__file__).parent / ".infra.env"
+        if env_file.exists():
+            for line in env_file.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line.startswith("TEST_DB_URL_ASYNC="):
+                    test_db_url = line.split("=", 1)[1].strip().strip('"').strip("'")
+                    break
+
+    if not test_db_url:
+        print("TEST_DB_URL_ASYNC не задан — тесты пропущены.\n")
+        return True
+
+    print("=" * 60)
+    print("ЗАПУСК ТЕСТОВ")
+    print("=" * 60)
+    env = os.environ.copy()
+    env["TEST_DB_URL_ASYNC"] = test_db_url
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", str(test_dir), "-v", "--tb=short", "--no-header"],
+        env=env,
+    )
+    print("=" * 60)
+
+    # Очистка тестовых таблиц чтобы не мешали миграциям
+    _cleanup_test_tables(test_db_url)
+
+    if result.returncode != 0:
+        print(f"\nТесты завершились с ошибкой (код {result.returncode}).")
+        print("Инфраструктура НЕ запущена.")
+        return False
+
+    print("\nВсе тесты прошли.\n")
+    return True
+
+
+def _cleanup_test_tables(db_url: str) -> None:
+    """Удаляет тестовые таблицы (test_roles, test_users, test_items) после тестов."""
+    try:
+        import psycopg
+
+        sync_url = db_url.replace("+asyncpg", "").replace("+psycopg", "")
+        with psycopg.connect(sync_url) as conn:
+            with conn.cursor() as cur:
+                for table in ("test_items", "test_users", "test_roles", "test_items_with_ts", "test_custom_pk"):
+                    cur.execute(f'DROP TABLE IF EXISTS "{table}" CASCADE')
+            conn.commit()
+    except Exception as e:
+        import sys
+
+        print(f"Предупреждение: не удалось очистить тестовые таблицы: {e}", file=sys.stderr)
+
+
+if __name__ == "__main__":
+    try:
+        run_tests = "--test" in sys.argv
+        asyncio.run(_main(run_tests=run_tests))
+    except KeyboardInterrupt:
+        print("\nОстановка.")

@@ -10,6 +10,9 @@ venv/
 env/
 .env
 *.log
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
 # Alembic (локальные миграции, не должны попадать в пакет)
 alembic/
@@ -21,3 +24,5 @@ alembic/
 .idea/
 *.swp
 .DS_Store
+# Local env
+.infra.env

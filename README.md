@@ -1,316 +1,405 @@
-event-infra
+# event-infra
+
 Инфраструктурный слой для проектов на PostgreSQL + SQLModel.
-Поставляется как устанавливаемый Python-пакет. Обеспечивает миграции, асинхронный доступ к БД с пулами соединений, очередями задач, универсальным CRUD, кешированием и мониторингом. Не требует веб-сервера — встраивается в ваш код как библиотека.
+Поставляется как устанавливаемый Python-пакет. Обеспечивает миграции, асинхронный доступ к БД с пулами соединений, очередями задач, универсальным CRUD, кешированием и мониторингом.
 
-🚀 Возможности
-Миграции – автоматическое сравнение SQLModel-моделей с БД и применение изменений (на основе Alembic).
+## Шпаргалка (30 секунд)
 
-Асинхронная инфраструктура – пулы соединений (asyncpg), очереди задач, диспетчеры с несколькими воркерами на канал.
+```bash
+pip install git+https://github.com/senia-glitch/event-infra.git  # установка
+infra init                        # создать models.py, run_infrastructure.py, .infra.env, alembic/
+infra validate                    # проверить конфигурацию и БД
+infra cheat                       # показать шпаргалку в терминале
+```
 
-Универсальный CRUD – создание, чтение, обновление, удаление записей на основе зарегистрированных моделей.
+```python
+# Быстрый старт — context manager, всё работает
+from infrastructure.event_infrastructure import create_pipeline
 
-Произвольные SQL-запросы – выполнение кастомных запросов с параметрами через любой канал.
+router = await create_pipeline(
+    db_url="postgresql+asyncpg://user:pass@localhost/db",
+    channels={"read": ..., "write": ...},
+    schemas={"users": User},
+)
+async with router:
+    await router.create("users", {"name": "Alice"})      # CREATE
+    await router.read("users", 1)                          # READ
+    await router.update("users", 1, {"name": "Bob"})      # UPDATE
+    await router.delete("users", 1)                        # DELETE
+    await router.list("users", limit=10, offset=0)         # LIST с пагинацией
+    await router.custom("SELECT count(*) FROM users")      # произвольный SQL
+    await router.health_check()                             # health: dict
+    await router.get_metrics()                              # метрики
+```
 
-Гибкая конфигурация – все настройки в одном файле .infra.env (или любом другом, задаваемом через INFRA_ENV_FILE). Поддержка произвольного количества каналов.
+| API | Описание |
+|-----|----------|
+| `router.create(entity, data)` | Создание записи |
+| `router.read(entity, id)` | Чтение по ID |
+| `router.update(entity, id, data)` | Обновление по ID |
+| `router.delete(entity, id)` | Удаление по ID |
+| `router.list(entity, limit, offset, order_by, filters)` | Пагинация + фильтры |
+| `router.execute(channel, sql, params)` | SQL через очередь |
+| `router.custom(sql, params)` | SQL напрямую |
+| `router.health_check()` | Проверка всех каналов |
+| `router.get_metrics()` | Метрики + uptime |
+| `router.shutdown()` | Graceful остановка |
 
-Кеширование – in-memory кеш для операций чтения с настраиваемым TTL и размером.
+| CLI | Описание |
+|-----|----------|
+| `infra init [-y]` | Инициализация проекта (с подтверждением) |
+| `infra validate` | Проверка конфигурации |
+| `infra monitor [interval]` | Мониторинг в реальном времени |
+| `infra reset <db_url> [-y]` | Полный сброс БД (с подтверждением) |
+| `infra test` | Запуск тестов |
+| `infra cheat` | Шпаргалка в терминале |
 
-Повторные попытки (retry) – автоматические ретраи при ошибках соединения, дедлоке, таймауте с экспоненциальной задержкой.
+| Конфиг (.infra.env) | По умолчанию |
+|---------------------|--------------|
+| `DB_URL_ASYNC` | — (обязательный) |
+| `CHANNELS` | `read,write,admin` |
+| `{NAME}_POOL_SIZE` | 10 |
+| `CACHE_ENABLED` | False |
+| `RETRY_MAX_RETRIES` | 3 |
 
-Мониторинг в реальном времени – отдельная команда infra-monitor для просмотра статистики по каналам, количеству обработанных задач, ошибкам и среднему времени выполнения.
+Подробнее см. ниже.
 
-Graceful shutdown – корректное завершение всех воркеров и закрытие пулов при остановке.
+## Возможности
 
-Полный сброс – команда infra-reset очищает БД и удаляет все файлы миграций, позволяя начать с нуля.
+- **Миграции** — автоматическое сравнение SQLModel-моделей с БД и применение изменений (на основе Alembic)
+- **Асинхронная инфраструктура** — пулы соединений (asyncpg), очереди задач, диспетчеры с несколькими воркерами на канал
+- **Универсальный CRUD** — создание, чтение, обновление, удаление записей на основе зарегистрированных моделей
+- **Произвольные SQL-запросы** — выполнение кастомных запросов с параметрами через любой канал
+- **Гибкая конфигурация** — все настройки в `.infra.env`, поддержка произвольного количества каналов
+- **Кеширование** — in-memory кеш для операций чтения с настраиваемым TTL и размером
+- **Повторные попытки (retry)** — автоматические ретраи при ошибках соединения с экспоненциальной задержкой
+- **Мониторинг** — команды `infra monitor` и встроенные метрики
+- **Graceful shutdown** — корректное завершение всех воркеров и закрытие пулов
+- **Health check** — проверка работоспособности всех каналов и пулов
 
-🎯 Преимущества
-Автономность – не зависит от веб-фреймворка, может использоваться в любом Python-проекте.
+## Требования
 
-Единый источник истины – схемы БД описываются через SQLModel в одном файле models.py.
+- Python 3.10+
+- PostgreSQL 9.6+
+- Установленный пакет
 
-Гибкость – легко добавлять новые каналы, менять размеры пулов, таймауты, настройки кеша и ретраев.
+## Установка
 
-Простота – установка одной командой, инициализация за секунду, интуитивные команды.
-
-Надёжность – пулы с проверкой соединений, автоматические переподключения, graceful shutdown.
-
-📦 Установка
-Установите пакет из GitHub:
-
-bash
+```bash
 pip install git+https://github.com/senia-glitch/event-infra.git
-Все зависимости (SQLAlchemy, SQLModel, Alembic, asyncpg, psycopg2-binary, httpx) установятся автоматически.
+```
 
-🏗️ Инициализация проекта
-Перейдите в корневую папку вашего будущего проекта и выполните:
+## Быстрый старт
 
-bash
-infra-init
+### 1. Установка и инициализация
+
+```bash
+pip install git+https://github.com/senia-glitch/event-infra.git
+mkdir my_project && cd my_project
+infra init
+infra validate          # проверить что всё настроено
+```
+
 Будут созданы:
+- `models.py` — шаблон SQLModel-моделей
+- `run_infrastructure.py` — модуль с `start_infrastructure()`
+- `.infra.env` — файл конфигурации
+- `alembic/` — папка для миграций
 
-models.py – шаблон SQLModel-моделей (источник истины для схемы БД).
+### 2. Настройка БД
 
-run_infrastructure.py – модуль с функцией start_infrastructure() для встраивания инфраструктуры в ваш код (миграции + EventRouter).
+Отредактируйте `.infra.env`:
 
-.infra.env – файл конфигурации со всеми параметрами и русскими комментариями.
+```env
+DB_URL=postgresql+psycopg://postgres:123@localhost:5432/mydb
+DB_URL_ASYNC=postgresql+asyncpg://postgres:123@localhost:5432/mydb
+```
 
-alembic/ – папка для миграций (содержит env.py, script.py.mako, versions/).
+### 3. Кастомные primary key
 
-Если нужно пересоздать файлы (например, после обновления пакета), используйте флаг --force:
+Пакет автоматически определяет primary key из SQLModel-схемы. Поддерживаются любые типы PK:
 
-bash
-infra-init --force
-⚙️ Конфигурация
-Все настройки хранятся в файле .infra.env (по умолчанию).
-Вы можете указать другой файл через переменную окружения INFRA_ENV_FILE:
+```python
+from sqlmodel import SQLModel, Field
 
-bash
-export INFRA_ENV_FILE=myconfig.env
-Основные параметры (подробно описаны в самом файле):
+# Стандартный int PK
+class User(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str
 
-Подключение к БД – DB_URL (синхронный, для миграций), DB_URL_ASYNC (асинхронный, для работы).
+# Кастомный строковый PK
+class Product(SQLModel, table=True):
+    sku: str = Field(primary_key=True)
+    name: str
 
-Каналы – список имён через запятую в CHANNELS. Для каждого канала можно задать {NAME}_POOL_SIZE, {NAME}_MAX_OVERFLOW, {NAME}_QUEUE_MAXSIZE.
+# UUID PK
+class Session(SQLModel, table=True):
+    uuid: str = Field(max_length=36, primary_key=True)
+    data: str
+```
 
-Общие настройки пулов – POOL_RECYCLE, POOL_PRE_PING, POOL_TIMEOUT.
-
-Таймауты – DEFAULT_TIMEOUT, SHUTDOWN_TIMEOUT, MAX_CONCURRENCY.
-
-Повторные попытки – RETRY_MAX_RETRIES, RETRY_DELAY_SECONDS, RETRY_BACKOFF_MULTIPLIER.
-
-Кеш – CACHE_ENABLED, CACHE_TTL_SECONDS, CACHE_MAX_SIZE.
-
-Пример добавления произвольного канала
-Допустим, вам нужен канал report для отчётных запросов.
-В .infra.env добавьте:
-
-env
-CHANNELS=read,write,admin,report
-REPORT_POOL_SIZE=5
-REPORT_MAX_OVERFLOW=2
-REPORT_QUEUE_MAXSIZE=100
-После запуска вы сможете использовать его в методах router.read(..., channel="report") или router.execute("report", "SELECT ...").
-
-🏃 Использование в своём коде
-После `infra-init` в корне проекта появится модуль `run_infrastructure.py`. Он предоставляет асинхронную функцию `start_infrastructure()`, которая:
-
-- загружает настройки из `.infra.env`,
-- применяет миграции к БД,
-- создаёт и запускает `EventRouter`,
-- возвращает готовый роутер.
-
-Минимальный пример:
+### 4. Использование
 
 ```python
 import asyncio
+from infrastructure.event_infrastructure import create_pipeline
 from run_infrastructure import start_infrastructure
 
 async def main():
+    # Context manager — автоматический shutdown
     router = await start_infrastructure()
-    try:
+    async with router:
         user = await router.create("users", {"name": "Alice"})
-        data = await router.read("users", 1)
-        metrics = router.get_metrics()
-        print(metrics.total_processed)
-    finally:
-        await router.shutdown()
-
-if __name__ == "__main__":
-    asyncio.run(main())
-Остановка выполняется через await router.shutdown() — это гарантирует graceful shutdown (доработку текущих задач и закрытие пулов).
-
-Функция start_infrastructure() не принимает аргументов: все настройки читаются из .infra.env (или файла, указанного в INFRA_ENV_FILE), а пути к models.py и alembic/ определяются относительно самого модуля run_infrastructure.py.
-
-Если миграции не удалось применить или не заданы DB_URL / DB_URL_ASYNC, функция бросает RuntimeError.
-
-🧰 Команды
-Пакет предоставляет три консольные команды:
-
-infra-init
-Инициализирует проект в текущей директории.
-Создаёт models.py, run_infrastructure.py, .infra.env и папку alembic.
-
-bash
-infra-init [--force]
-infra-monitor
-Запускает мониторинг инфраструктуры, подключаясь к запущенному сервису по адресу, указанному в переменной API_URL (по умолчанию http://localhost:8000).
-Выводит статистику по каналам, обработанным задачам, ошибкам, среднему времени выполнения, а также метрики сценариев (если доступны).
-
-bash
-infra-monitor [интервал_в_секундах]
-По умолчанию интервал 0.5 с. Остановка – Ctrl+C.
-
-infra-reset
-Полный сброс: удаляет все файлы миграций из папки alembic/versions/, очищает кеш модулей и удаляет все таблицы в публичной схеме указанной БД.
-
-bash
-infra-reset postgresql://user:pass@localhost:5432/dbname [--alembic-dir ./alembic]
-Если папка alembic находится не в текущей директории, укажите её явно через --alembic-dir.
-
-💻 Использование EventRouter
-После получения роутера (router = await start_infrastructure() или router = await create_pipeline(...)) вы можете выполнять операции.
-
-CRUD
-python
-
-Создание
-result = await router.create("user", {"name": "Alice", "email": "a@mail.com", "age": 25}, channel="write")
-
-Чтение
-result = await router.read("user", 1, channel="read")
-
-Обновление
-result = await router.update("user", 1, {"age": 26}, channel="write")
-
-Удаление
-result = await router.delete("user", 1, channel="write")
-Канал указывается явно. По умолчанию для create/update/delete используется write, для read – read.
-
-Произвольный SQL
-python
-
-Через канал read
-result = await router.execute("read", "SELECT * FROM "user" WHERE age > :min", {"min": 18})
-
-Через канал report
-result = await router.custom("SELECT COUNT(*) FROM orders", channel="report")
-Повторные попытки (retry)
-Глобальные настройки задаются в .infra.env.
-При необходимости можно переопределить для конкретного вызова:
-
-python
-from infrastructure.event_infrastructure.config import RetryConfig
-
-result = await router.read("user", 1, retry=RetryConfig(max_retries=5, delay_seconds=0.2))
-Кеширование
-Кеш работает для операций чтения. Включается/отключается в .infra.env.
-Для конкретного вызова можно переопределить:
-
-python
-
-Не использовать кеш для этого чтения
-result = await router.read("user", 1, cache=False)
-📊 Мониторинг
-Встроенный мониторинг позволяет в реальном времени наблюдать за состоянием инфраструктуры.
-
-Запуск – infra-monitor [interval].
-
-Отображаемые данные:
-
-Общее количество обработанных и упавших задач.
-
-Размер очередей.
-
-Количество активных воркеров и размер пула для каждого канала.
-
-Среднее время выполнения задачи по каналам.
-
-Информация о кеше.
-
-Метрики сценариев (если реализованы в вашем приложении).
-
-Мониторинг подключается к эндпоинтам /system/stats и /system/scenario-metrics вашего веб-сервера, поэтому его можно использовать как в локальной разработке, так и на удалённых серверах.
-
-Если веб-сервер не используется, метрики можно получать напрямую из роутера: router.get_metrics() (возвращает InfrastructureMetrics) или router.print_metrics(full=True) (печатает в stdout).
-
-🧹 Сброс и очистка
-Команда infra-reset выполняет полную очистку:
-
-Удаляет все файлы миграций из alembic/versions/ (кроме init.py).
-
-Удаляет папки pycache внутри alembic.
-
-Очищает кеш загруженных модулей Python.
-
-Удаляет все таблицы в публичной схеме БД.
-
-После сброса можно снова запустить приложение с start_infrastructure() – миграции будут созданы заново, и БД будет построена с нуля.
-
-Внимание: операция необратима! Убедитесь, что у вас есть бэкап данных, если они важны.
-
-📁 Структура пакета
-text
-event-infra/
-├── infrastructure/
-│ ├── init.py
-│ ├── cli.py # точки входа команд
-│ ├── config_loader.py # загрузка .env/.infra.env
-│ ├── monitor.py # мониторинг
-│ ├── templates/ # шаблоны для infra-init
-│ │ ├── env_template.txt
-│ │ ├── models_template.py
-│ │ └── run_infrastructure_template.py # модуль с start_infrastructure()
-│ ├── db_migrator/ # утилита миграций
-│ └── event_infrastructure/ # ядро (пулы, очереди, CRUD)
-├── pyproject.toml
-└── README.md
-🔧 Требования
-Python 3.8+
-
-PostgreSQL (9.6+)
-
-Установленный пакет (см. раздел «Установка»)
-
-📝 Пример использования
-
-Установка пакета
-
-bash
-pip install git+https://github.com/senia-glitch/event-infra.git
-
-Инициализация
-
-bash
-mkdir my_project && cd my_project
-infra-init
-
-Настройка БД
-Отредактировать .infra.env, указать свои DB_URL и DB_URL_ASYNC.
-
-Использование в своём коде
-В любом модуле вашего приложения:
-
-python
-import asyncio
-from run_infrastructure import start_infrastructure
-
-async def main():
-    router = await start_infrastructure()
-    try:
-        user = await router.create("users", {
-            "role_id": 1,
-            "username": "alice",
-            "personal_number": "PN001",
-            "password_hash": "hash",
-            "full_name": "Alice Test",
-            "email": "alice@test.local",
-        })
-        print(user.data)
-
         data = await router.read("users", user.data[0]["id"])
         print(data.data)
+
+    # Или вручную
+    router = await start_infrastructure()
+    try:
+        await router.create("users", {"name": "Bob"})
     finally:
         await router.shutdown()
 
 asyncio.run(main())
-Использование create_pipeline напрямую (для продвинутых сценариев)
-Если вы хотите сами управлять конфигурацией и не использовать .infra.env:
+```
 
-python
+## Конфигурация
+
+Все настройки хранятся в `.infra.env` (по умолчанию). Файл может включать:
+- Кавычки: `KEY="value"` или `KEY='value'`
+- Inline комментарии: `KEY=value # comment`
+- Продолжение строк: `KEY=value\` (backslash)
+
+### Основные параметры
+
+| Параметр | Описание | По умолчанию |
+|----------|----------|--------------|
+| `DB_URL` | Sync URL для миграций | — |
+| `DB_URL_ASYNC` | Async URL для работы | — |
+| `CHANNELS` | Список каналов через запятую | `read,write,admin` |
+| `LOG_LEVEL` | Уровень логирования | `INFO` |
+
+### Каналы
+
+Для каждого канала `{NAME}`:
+
+| Параметр | Описание | По умолчанию |
+|----------|----------|--------------|
+| `{NAME}_POOL_SIZE` | Размер пула | 10 |
+| `{NAME}_MAX_OVERFLOW` | Доп. соединения | 5 |
+| `{NAME}_QUEUE_MAXSIZE` | Макс. размер очереди | 1000 |
+| `{NAME}_WORKERS` | Кол-во воркеров (0=pool_size) | 0 |
+
+### Пулы соединений
+
+| Параметр | Описание | По умолчанию |
+|----------|----------|--------------|
+| `POOL_RECYCLE` | Время жизни соединения (сек) | 3600 |
+| `POOL_PRE_PING` | Проверка соединения | True |
+| `POOL_TIMEOUT` | Таймаут ожидания (сек) | 30 |
+
+### Retry
+
+| Параметр | Описание | По умолчанию |
+|----------|----------|--------------|
+| `RETRY_MAX_RETRIES` | Макс. число попыток | 3 |
+| `RETRY_DELAY_SECONDS` | Начальная задержка (сек) | 0.5 |
+| `RETRY_BACKOFF_MULTIPLIER` | Множитель задержки | 2.0 |
+| `RETRY_MAX_TOTAL_TIMEOUT` | Общий таймаут (0=без ограничений) | 0.0 |
+| `RETRY_ON_TIMEOUT` | Ретраить при timeout для мутаций | False |
+
+> **Примечание:** `read` операции всегда ретраятся при timeout (идемпотентны). Для `create`/`update`/`delete` timeout ретраится только при `RETRY_ON_TIMEOUT=true`.
+
+### Кеш
+
+| Параметр | Описание | По умолчанию |
+|----------|----------|--------------|
+| `CACHE_ENABLED` | Включить кеш | False |
+| `CACHE_TTL_SECONDS` | Время жизни записи (сек) | 60.0 |
+| `CACHE_MAX_SIZE` | Макс. записей | 1000 |
+
+### Пример: добавление канала `report`
+
+```env
+CHANNELS=read,write,admin,report
+REPORT_POOL_SIZE=5
+REPORT_MAX_OVERFLOW=2
+REPORT_QUEUE_MAXSIZE=100
+REPORT_WORKERS=3
+```
+
+## API Reference
+
+### EventRouter
+
+```python
+# Context manager — автоматический shutdown
+router = await create_pipeline(...)
+async with router:
+    # CRUD
+    result = await router.create(entity, data, channel="write")
+    result = await router.read(entity, id, channel="read")
+    result = await router.update(entity, id, data, channel="write")
+    result = await router.delete(entity, id, channel="write")
+
+    # Пагинация (поддержка кастомных primary key)
+    result = await router.list(entity, channel="read", limit=100, offset=0, order_by="name", order_desc=False, filters={"status": "active"})
+
+    # Произвольный SQL
+    result = await router.execute(channel, sql, params)
+    result = await router.custom(sql, params, channel="read")
+
+    # Health check (проверяет БД напрямую через PoolManager, без очереди)
+    health = await router.health_check()  # dict с "alive", "db_connected", "pools", "channels"
+    alive = await router.is_alive()       # bool
+
+    # Метрики
+    metrics = router.get_metrics()        # InfrastructureMetrics
+    router.print_metrics(full=True)       # вывод в stdout
+
+# Или вручную
+router = await create_pipeline(...)
+try:
+    await router.create(entity, data)
+finally:
+    await router.shutdown()
+```
+
+### Response
+
+```python
+result = await router.create("users", {"name": "Alice"})
+
+result.success          # True/False
+result.data             # [{"id": 1, "name": "Alice"}] или None
+result.count            # 1
+result.error            # ErrorInfo(code=422, message="...") или None
+result.meta.entity      # "users"
+result.meta.operation   # "create"
+result.meta.affected_rows   # 1
+result.meta.execution_time_ms  # 1.2
+result.meta.retries     # 0
+```
+
+### PipelineConfig
+
+```python
+from infrastructure.event_infrastructure.config import PipelineConfig, ChannelConfig, RetryConfig, CacheConfig
+
+config = PipelineConfig(
+    db_url="postgresql+asyncpg://...",
+    channels={"read": ChannelConfig(pool_size=20), "write": ChannelConfig(pool_size=10)},
+    pool_recycle=3600,
+    default_timeout=30.0,
+    retry=RetryConfig(max_retries=3),
+    cache=CacheConfig(enabled=True, ttl_seconds=60.0),
+)
+```
+
+### start_infrastructure()
+
+```python
+from run_infrastructure import start_infrastructure
+
+# Базовый вариант — схемы берутся из models.py
+router = await start_infrastructure()
+
+# С кастомной функцией схем
+router = await start_infrastructure(schemas_fn=my_get_schemas)
+```
+
+### create_pipeline()
+
+```python
 from infrastructure.event_infrastructure import create_pipeline
-from models import get_all_schemas
 
 router = await create_pipeline(
-db_url="postgresql+asyncpg://...",
-schemas=get_all_schemas(),
-
-параметры можно передать явно
+    db_url="postgresql+asyncpg://...",
+    channels={"read": ChannelConfig(pool_size=20)},
+    schemas={"users": User, "roles": Role},
+    exclude_tables={"alembic_version"},
 )
-user = await router.read("user", 42)
-📄 Лицензия
+```
+
+## Команды CLI
+
+```bash
+infra init [--force] [-y]         Инициализация проекта (с подтверждением)
+infra validate                    Проверка конфигурации и подключения к БД
+infra monitor [интервал]          Мониторинг запущенной инфраструктуры
+infra reset <db_url> [-y]         Полный сброс БД (с подтверждением)
+infra test [-v, --verbose]        Запуск тестов
+infra cheat                       Шпаргалка по API
+infra help                        Справка
+```
+
+> Флаг `-y` / `--yes` отключает интерактивное подтверждение (полезно в скриптах).
+
+## Тестирование
+
+```bash
+# Установка тестовых зависимостей
+pip install -e ".[test]"
+
+# Запуск тестов (требуется PostgreSQL)
+TEST_DB_URL_ASYNC=postgresql+asyncpg://user:pass@localhost:5432/testdb pytest
+```
+
+## Архитектура
+
+```
+infrastructure/
+├── config_loader.py              # Загрузка .env, load_config_from_env()
+├── cli.py                        # Точки входа CLI (init/validate/monitor/reset/test/cheat)
+├── validator.py                  # Валидация конфигурации и подключения к БД
+├── monitor.py                    # HTTP-мониторинг
+├── event_infrastructure/
+│   ├── config/models.py          # PipelineConfig, ChannelConfig, RetryConfig, CacheConfig
+│   ├── db/
+│   │   ├── pools.py              # PoolManager — управление пулами
+│   │   ├── queues.py             # QueueManager — очереди задач
+│   │   ├── dispatcher.py         # Dispatcher — N корутин на канал
+│   │   ├── orchestrator.py       # Orchestrator — фасад
+│   │   └── models.py             # TaskResult, ChannelMetrics, InfrastructureMetrics
+│   ├── router/
+│   │   ├── router.py             # EventRouter — публичный интерфейс (с context manager)
+│   │   ├── response.py           # Response, ErrorInfo, MetaInfo
+│   │   ├── cache.py              # MemoryCache
+│   │   ├── operations/           # CreateOp, ReadOp, UpdateOp, DeleteOp, CustomOp, ListOp
+│   │   └── schemas/              # EntitySchema, EntityRegistry
+│   └── pipeline.py               # create_pipeline(), shutdown_pipeline()
+├── db_migrator/
+│   ├── core.py                   # run_migration()
+│   └── reset.py                  # reset()
+├── templates/                    # Шаблоны для infra-init
+├── tests/                        # pytest-тесты
+└── example.py                    # Полный пример всех возможностей
+```
+
+## Troubleshooting
+
+### Ошибка "Канал 'xxx' не найден"
+
+Убедитесь, что канал объявлен в `CHANNELS` и его имя совпадает (регистр важен).
+
+### Ошибка "Не задан DB_URL_ASYNC"
+
+Проверьте, что файл `.infra.env` существует и содержит `DB_URL_ASYNC=...`.
+
+### Миграции не применяются
+
+1. Проверьте `DB_URL` (синхронный URL для миграций)
+2. Убедитесь, что PostgreSQL доступен
+3. Проверьте `models.py` — должна быть функция `get_all_schemas()`
+
+### Кеш не работает
+
+Установите `CACHE_ENABLED=True` в `.infra.env`.
+
+### Мониторинг не подключается
+
+Убедитесь, что API_URL доступен (по умолчанию `http://localhost:8000`).
+
+## Лицензия
+
 MIT
-
-🤝 Вклад и обратная связь
-Если вы нашли баг или хотите предложить улучшение, создайте Issue или Pull Request в репозитории. Все идеи приветствуются!
-
-Удачного использования! 🚀

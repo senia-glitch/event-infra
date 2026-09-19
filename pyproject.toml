@@ -4,19 +4,45 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "event-infra"
-version = "0.1.0"
+version = "0.2.0"
 description = "Инфраструктурный слой: миграции, event router, мониторинг"
 readme = "README.md"
-requires-python = ">=3.8"
-authors = [{ name = "Your Name", email = "you@example.com" }]
+requires-python = ">=3.10"
+authors = [{ name = "Arseniy" }]
 license = { text = "MIT" }
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Database",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
 dependencies = [
     "sqlalchemy>=2.0",
-    "sqlmodel>=0.0.14",
+    "sqlmodel>=0.0.14,<0.1",
     "alembic>=1.10",
     "asyncpg>=0.28",
+    "psycopg[binary]>=3.1",
+]
+
+[project.optional-dependencies]
+legacy = [
     "psycopg2-binary>=2.9",
+]
+monitor = [
     "httpx>=0.24",
+]
+test = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21,<0.25",
+    "ruff>=0.1",
 ]
 
 [project.scripts]
@@ -25,23 +51,35 @@ infra-monitor = "infrastructure.cli:monitor"
 infra-reset = "infrastructure.cli:reset"
 infra = "infrastructure.cli:main"
 
-[project.optional-dependencies]
-test = [
-    "pytest>=7.0",
-    "pytest-asyncio>=0.21",
-]
-
 [tool.setuptools.packages.find]
 include = ["infrastructure*"]
 
 [tool.setuptools.package-data]
 infrastructure = [
+    "py.typed",
     "templates/*",
     "templates/env_template.txt",
     "db_migrator/alembic.ini",
     "db_migrator/alembic/*",
     "db_migrator/alembic/versions/*",
     "tests/*.py",
-    "tests/test_db/*.py",
-    "tests/test_router/*.py",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["infrastructure/tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+markers = [
+    "slow:marks tests as slow (deselect with '-m \"not slow\"')",
+]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = ["E501"]

@@ -8,7 +8,6 @@ from alembic.runtime.migration import MigrationContext
 from sqlalchemy import create_engine
 import logging
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -19,7 +18,7 @@ def load_models(schema_path: str):
 
     if module_name in sys.modules:
         module = sys.modules[module_name]
-        if hasattr(module, 'metadata'):
+        if hasattr(module, "metadata"):
             logger.info(f"Модуль {module_name} уже загружен, таблицы: {', '.join(module.metadata.tables.keys())}")
             return module
 
@@ -31,7 +30,7 @@ def load_models(schema_path: str):
     sys.modules[module_name] = module
     spec.loader.exec_module(module)
 
-    if not hasattr(module, 'metadata'):
+    if not hasattr(module, "metadata"):
         raise AttributeError("Добавьте 'metadata = SQLModel.metadata' в models.py")
 
     logger.info(f"Загружены таблицы: {', '.join(module.metadata.tables.keys())}")
@@ -58,13 +57,13 @@ def run_migration(db_url: str, schema_path: str, alembic_dir: str = None) -> boo
 
         # ========== АВТОМАТИЧЕСКОЕ ИСПРАВЛЕНИЕ КОДИРОВКИ ==========
         try:
-            with open(alembic_ini_path, 'r', encoding='utf-8') as f:
+            with open(alembic_ini_path, "r", encoding="utf-8") as f:
                 content = f.read()
         except UnicodeDecodeError:
             logger.warning("alembic.ini не в UTF-8, пересохраняем из системной кодировки...")
-            with open(alembic_ini_path, 'r', encoding='cp1251') as f:
+            with open(alembic_ini_path, "r", encoding="latin-1") as f:
                 content = f.read()
-            with open(alembic_ini_path, 'w', encoding='utf-8') as f:
+            with open(alembic_ini_path, "w", encoding="utf-8") as f:
                 f.write(content)
             logger.info("alembic.ini пересохранён в UTF-8")
 
@@ -91,5 +90,5 @@ def run_migration(db_url: str, schema_path: str, alembic_dir: str = None) -> boo
         return True
 
     except Exception as e:
-        logger.error(f"Ошибка миграции: {e}")
+        logger.exception("Ошибка миграции: %s", e)
         return False

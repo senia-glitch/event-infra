@@ -4,7 +4,6 @@
 """
 
 import sys
-import os
 import shutil
 from pathlib import Path
 from sqlalchemy import create_engine, text
@@ -54,7 +53,7 @@ def reset(db_url: str, alembic_dir: str = None):
         logger.info("Удалён __pycache__ в alembic")
 
     # 3. Очищаем кеш модулей (если они загружены)
-    modules_to_remove = [name for name in sys.modules if 'models' in name.lower() or 'alembic' in name.lower()]
+    modules_to_remove = [name for name in sys.modules if "models" in name.lower() or "alembic" in name.lower()]
     for module_name in modules_to_remove:
         if module_name in sys.modules:
             del sys.modules[module_name]
@@ -67,10 +66,12 @@ def reset(db_url: str, alembic_dir: str = None):
             conn.execute(text("SET session_replication_role = 'replica'"))
             conn.commit()
 
-            result = conn.execute(text("""
+            result = conn.execute(
+                text("""
                 SELECT tablename FROM pg_tables
                 WHERE schemaname = 'public'
-            """))
+            """)
+            )
             tables = [row[0] for row in result]
 
             for table in tables:

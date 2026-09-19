@@ -6,6 +6,7 @@ from .read import ReadOperation
 from .update import UpdateOperation
 from .delete import DeleteOperation
 from .custom import CustomOperation
+from .list_op import ListOperation
 
 __all__ = [
     "BaseOperation",
@@ -14,4 +15,5 @@ __all__ = [
     "UpdateOperation",
     "DeleteOperation",
     "CustomOperation",
+    "ListOperation",
 ]

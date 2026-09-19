@@ -8,15 +8,24 @@
 
 # --- ПОДКЛЮЧЕНИЕ К БАЗЕ ДАННЫХ ---
 
+# Sync-драйвер PostgreSQL: psycopg (по умолчанию) или psycopg2 (legacy)
+# Если DB_URL задан без явного драйвера (postgresql://...), будет подставлен этот драйвер
+DB_SYNC_DRIVER=psycopg
+
 # Синхронный URL (используется для миграций)
-DB_URL=postgresql://postgres:123@localhost:5432/Proj_v2
+DB_URL=postgresql+psycopg://postgres:123@localhost:5432/Proj_v2
 
 # Асинхронный URL (используется для работы event_infrastructure)
 DB_URL_ASYNC=postgresql+asyncpg://postgres:123@localhost:5432/Proj_v2
 
 # БД для тестирования
-TEST_DB_URL = postgresql://postgres:123@localhost:5432/Proj_v2                # Синхронный URL (используется для миграций)
-TEST_DB_URL_ASYNC = postgresql+asyncpg://postgres:123@localhost:5432/Proj_v2  # Асинхронный URL (используется для работы event_infrastructure)
+TEST_DB_URL=postgresql+psycopg://postgres:123@localhost:5432/Proj_v2
+TEST_DB_URL_ASYNC=postgresql+asyncpg://postgres:123@localhost:5432/Proj_v2
+
+# --- ЛОГИРОВАНИЕ ---
+
+# Уровень логирования: DEBUG, INFO, WARNING, ERROR, CRITICAL
+LOG_LEVEL=INFO
 
 # --- КАНАЛЫ ---
 
@@ -26,25 +35,32 @@ CHANNELS=read,write,admin
 
 # Для каждого канала можно задать параметры с префиксом ИМЯ_КАНАЛА_ (в верхнем регистре).
 # Если параметр не задан, используются значения по умолчанию (pool_size=10, max_overflow=5, queue_maxsize=1000).
-# Пример для канала read:
+
+# --- КАНАЛ read ---
 READ_POOL_SIZE=39
 READ_MAX_OVERFLOW=10
 READ_QUEUE_MAXSIZE=50000
+# Количество воркеров (0 = pool_size)
+# READ_WORKERS=20
 
-# Для канала write:
+# --- КАНАЛ write ---
 WRITE_POOL_SIZE=60
 WRITE_MAX_OVERFLOW=5
 WRITE_QUEUE_MAXSIZE=50000
+# WRITE_WORKERS=10
 
-# Для канала admin:
+# --- КАНАЛ admin ---
 ADMIN_POOL_SIZE=1
 ADMIN_MAX_OVERFLOW=0
 ADMIN_QUEUE_MAXSIZE=5000
+# ADMIN_WORKERS=1
 
+# --- Пример добавления нового канала ---
 # Если вы добавили канал report, задайте его параметры:
 # REPORT_POOL_SIZE=5
 # REPORT_MAX_OVERFLOW=2
 # REPORT_QUEUE_MAXSIZE=100
+# REPORT_WORKERS=3
 
 
 # --- ОБЩИЕ ПАРАМЕТРЫ ПУЛА СОЕДИНЕНИЙ ---
@@ -82,6 +98,13 @@ RETRY_DELAY_SECONDS=0.5
 # Множитель увеличения задержки (экспоненциальная задержка)
 RETRY_BACKOFF_MULTIPLIER=2.0
 
+# Общий таймаут всех повторных попыток (сек, 0 = без ограничений)
+RETRY_MAX_TOTAL_TIMEOUT=0.0
+
+# Повтор при timeout (по умолчанию False — мутации create/update/delete не ретраятся при timeout)
+# Для read операций retry при timeout работает всегда (идемпотентные операции)
+RETRY_ON_TIMEOUT=false
+
 
 # --- КЕШИРОВАНИЕ ---
 
@@ -93,3 +116,10 @@ CACHE_TTL_SECONDS=3.0
 
 # Максимальное количество записей в кеше
 CACHE_MAX_SIZE=5000
+
+
+# --- ТАБЛИЦЫ ДЛЯ ИГНОРИРОВАНИЯ ---
+
+# Список таблиц через запятую, которые не участвуют в миграциях и CRUD
+# (по умолчанию alembic_version)
+EXCLUDE_TABLES=alembic_version

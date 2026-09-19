@@ -32,7 +32,8 @@ def _create_alembic_dir(force: bool = False) -> bool:
     versions_path.mkdir()
 
     # env.py
-    (alembic_path / "env.py").write_text("""
+    (alembic_path / "env.py").write_text(
+        """
 from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
 from alembic import context
@@ -81,10 +82,13 @@ if context.is_offline_mode():
     run_migrations_offline()
 else:
     run_migrations_online()
-""", encoding="utf-8")
+""",
+        encoding="utf-8",
+    )
 
     # script.py.mako
-    (alembic_path / "script.py.mako").write_text("""
+    (alembic_path / "script.py.mako").write_text(
+        """
 \"\"\"${message}
 
 Revision ID: ${up_revision}
@@ -112,7 +116,9 @@ def upgrade() -> None:
 def downgrade() -> None:
     \"\"\"Downgrade schema.\"\"\"
     ${downgrades if downgrades else "pass"}
-""", encoding="utf-8")
+""",
+        encoding="utf-8",
+    )
 
     # versions/__init__.py
     (versions_path / "__init__.py").write_text("", encoding="utf-8")
@@ -123,16 +129,33 @@ def downgrade() -> None:
 
 # === Старые команды (обратная совместимость) ===
 
-def init():
+
+def _confirm(prompt: str) -> bool:
+    """Запрашивает подтверждение у пользователя (y/N)."""
+    try:
+        answer = input(f"{prompt} [y/N] ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print("\nОтмена.")
+        return False
+    return answer in ("y", "yes", "да")
+
+
+def init(args: list[str] | None = None):
     parser = argparse.ArgumentParser(description="Инициализация инфраструктурного слоя в текущей директории")
     parser.add_argument("--force", action="store_true", help="Перезаписать существующие файлы")
-    args = parser.parse_args()
+    parser.add_argument("-y", "--yes", action="store_true", help="Не спрашивать подтверждение")
+    parsed = parser.parse_args(args)
+
+    if not parsed.yes:
+        if not _confirm("Создать файлы проекта (models.py, run_infrastructure.py, .infra.env, alembic/)?"):
+            print("Отмена.")
+            return
 
     cwd = Path.cwd()
-    ok1 = _copy_template("models_template.py", cwd / "models.py", args.force)
-    ok2 = _copy_template("run_infrastructure_template.py", cwd / "run_infrastructure.py", args.force)
-    ok3 = _copy_template("env_template.txt", cwd / ".infra.env", args.force)
-    ok4 = _create_alembic_dir(args.force)
+    ok1 = _copy_template("models_template.py", cwd / "models.py", parsed.force)
+    ok2 = _copy_template("run_infrastructure_template.py", cwd / "run_infrastructure.py", parsed.force)
+    ok3 = _copy_template("env_template.txt", cwd / ".infra.env", parsed.force)
+    ok4 = _create_alembic_dir(parsed.force)
 
     if ok1 and ok2 and ok3 and ok4:
         print("\nГотово. Теперь вы можете использовать инфраструктуру в своём коде:")
@@ -144,25 +167,35 @@ def init():
         print("\nИнициализация завершена с предупреждениями.")
 
 
-def reset():
+def reset(args: list[str] | None = None):
     from infrastructure.db_migrator.reset import reset as reset_db
+
     parser = argparse.ArgumentParser(description="Полный сброс БД и миграций")
     parser.add_argument("db_url", help="Строка подключения к БД")
     parser.add_argument("--alembic-dir", default=None, help="Путь к папке alembic (по умолчанию ./alembic)")
-    args = parser.parse_args()
+    parser.add_argument("-y", "--yes", action="store_true", help="Не спрашивать подтверждение")
+    parsed = parser.parse_args(args)
 
-    success = reset_db(args.db_url, args.alembic_dir)
+    if not parsed.yes:
+        print("ВНИМАНИЕ: Все таблицы будут УДАЛЕНЫ из БД:")
+        print(f"  {parsed.db_url}")
+        if not _confirm("Продолжить?"):
+            print("Отмена.")
+            return
+
+    success = reset_db(parsed.db_url, parsed.alembic_dir)
     sys.exit(0 if success else 1)
 
 
-def monitor():
-    if len(sys.argv) > 1 and sys.argv[1] in ("-h", "--help"):
+def monitor(args: list[str] | None = None):
+    if args and args[0] in ("-h", "--help"):
         print("Использование: infra-monitor [интервал_в_секундах]")
         print("По умолчанию интервал 0.5 секунды")
         return
 
     from infrastructure.monitor import monitor as _monitor
-    interval = float(sys.argv[1]) if len(sys.argv) > 1 else 0.5
+
+    interval = float(args[0]) if args else 0.5
     try:
         asyncio.run(_monitor(interval))
     except KeyboardInterrupt:
@@ -171,9 +204,98 @@ def monitor():
 
 # === Новая команда `infra` с подкомандами ===
 
+
+def validate(args: list[str] | None = None):
+    from infrastructure.validator import validate_all
+
+    parser = argparse.ArgumentParser(description="Проверка конфигурации и подключения к БД")
+    parser.add_argument("--env-file", default=".infra.env", help="Путь к .env файлу")
+    parser.add_argument("--models", default="models.py", help="Путь к models.py")
+    parser.add_argument("--alembic-dir", default="alembic", help="Путь к папке alembic")
+    parsed = parser.parse_args(args)
+
+    results = validate_all(
+        env_file=parsed.env_file,
+        models_path=parsed.models,
+        alembic_dir=parsed.alembic_dir,
+    )
+
+    icons = {"ok": "[OK]  ", "warn": "[WARN]", "fail": "[FAIL]"}
+    for r in results:
+        print(f"  {icons[r.status]}  {r.message}")
+
+    fails = sum(1 for r in results if r.status == "fail")
+    if fails:
+        print(f"\nОбнаружено ошибок: {fails}. Исправьте их перед запуском.")
+        sys.exit(1)
+    else:
+        print("\nВсе проверки пройдены.")
+
+
+def cheat(args: list[str] | None = None):
+    print("""
+=== EVENT-INFRA: ШПАРГАЛКА ===
+
+--- БЫСТРЫЙ СТАРТ ---
+
+  infra init                    # создать файлы проекта
+  infra validate                # проверить конфигурацию
+
+  from infrastructure.event_infrastructure import create_pipeline
+
+  router = await create_pipeline(
+      db_url="postgresql+asyncpg://user:pass@localhost/db",
+      channels={"read": ..., "write": ...},
+      schemas={"users": User},
+  )
+  async with router:
+      ...
+
+--- CRUD ---
+
+  await router.create("users", {"name": "Alice"})
+  await router.read("users", 1)
+  await router.update("users", 1, {"name": "Bob"})
+  await router.delete("users", 1)
+
+--- ПАГИНАЦИЯ ---
+
+  await router.list("users", limit=10, offset=0, order_by="name", filters={"status": "active"})
+
+--- ПРОИЗВОЛЬНЫЙ SQL ---
+
+  await router.execute("read", "SELECT * FROM users WHERE id > :id", {"id": 0})
+  await router.custom("SELECT count(*) FROM users", channel="read")
+
+--- HEALTH & METRICS ---
+
+  await router.health_check()     # dict: alive, db_connected, pools, channels
+  await router.get_metrics()      # InfrastructureMetrics
+  await router.shutdown()         # graceful shutdown
+
+--- КОНФИГУРАЦИЯ (.infra.env) ---
+
+  DB_URL_ASYNC=postgresql+asyncpg://user:pass@localhost/db
+  CHANNELS=read,write,admin
+  {NAME}_POOL_SIZE=10
+  CACHE_ENABLED=True
+  RETRY_MAX_RETRIES=3
+
+--- CLI ---
+
+  infra init [--force] [-y]        инициализация
+  infra validate                  проверка конфигурации
+  infra monitor [interval]        мониторинг
+  infra reset <db_url> [-y]       сброс БД
+  infra test [-v]                 тесты
+  infra cheat                     эта шпаргалка
+""")
+
+
 def run_tests(verbose: bool = False):
     """Запускает встроенные тесты."""
     from infrastructure.tests import run_tests as _run_tests
+
     success = _run_tests(verbose=verbose)
     sys.exit(0 if success else 1)
 
@@ -182,10 +304,12 @@ def help_command():
     print("""
 Доступные команды инфраструктурного слоя:
 
-  infra init [--force]              Инициализация проекта (создание моделей, конфига, alembic)
+  infra init [--force] [-y]        Инициализация проекта (создание моделей, конфига, alembic)
+  infra validate                    Проверка конфигурации и подключения к БД
   infra monitor [интервал]          Мониторинг запущенной инфраструктуры (подключение к API)
-  infra reset <db_url> [--alembic-dir]  Полный сброс БД и удаление миграций
+  infra reset <db_url> [-y]         Полный сброс БД и удаление миграций
   infra test [-v, --verbose]        Запуск встроенных тестов (требуется тестовая БД)
+  infra cheat                       Шпаргалка по API
   infra help                        Показать эту справку
 
 После инициализации используйте в своём коде:
@@ -203,19 +327,19 @@ def main():
         return
 
     command = sys.argv[1].lower()
-    # Удаляем имя команды, оставляем остальные аргументы
+    # Оставляем аргументы без имени команды
     args = sys.argv[2:]
 
     if command == "init":
-        # Передаём аргументы в init (она сама парсит)
-        sys.argv = [sys.argv[0]] + args
-        init()
+        init(args)
+    elif command == "validate":
+        validate(args)
+    elif command == "cheat":
+        cheat(args)
     elif command == "monitor":
-        sys.argv = [sys.argv[0]] + args
-        monitor()
+        monitor(args)
     elif command == "reset":
-        sys.argv = [sys.argv[0]] + args
-        reset()
+        reset(args)
     elif command == "test":
         verbose = "-v" in args or "--verbose" in args
         run_tests(verbose=verbose)

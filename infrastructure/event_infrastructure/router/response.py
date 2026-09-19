@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 @dataclass
 class ErrorInfo:
     """Информация об ошибке."""
+
     code: int
     message: str
 
@@ -14,21 +15,24 @@ class ErrorInfo:
 @dataclass
 class MetaInfo:
     """Мета-информация об операции."""
+
     entity: Optional[str] = None
     operation: str = ""
     affected_rows: int = 0
     execution_time_ms: float = 0.0
+    retries: int = 0
 
 
 @dataclass
 class Response:
     """Универсальный ответ."""
+
     success: bool
     data: Optional[List[Dict[str, Any]]] = None
     count: int = 0
     error: Optional[ErrorInfo] = None
     meta: MetaInfo = field(default_factory=MetaInfo)
-    
+
     @classmethod
     def success_response(
         cls,
@@ -36,7 +40,8 @@ class Response:
         operation: str,
         entity: Optional[str] = None,
         affected_rows: int = 0,
-        execution_time_ms: float = 0.0
+        execution_time_ms: float = 0.0,
+        retries: int = 0,
     ) -> "Response":
         """Создаёт успешный ответ."""
         return cls(
@@ -47,10 +52,11 @@ class Response:
                 entity=entity,
                 operation=operation,
                 affected_rows=affected_rows or len(data),
-                execution_time_ms=execution_time_ms
-            )
+                execution_time_ms=execution_time_ms,
+                retries=retries,
+            ),
         )
-    
+
     @classmethod
     def error_response(
         cls,
@@ -58,7 +64,8 @@ class Response:
         error_message: str,
         operation: str,
         entity: Optional[str] = None,
-        execution_time_ms: float = 0.0
+        execution_time_ms: float = 0.0,
+        retries: int = 0,
     ) -> "Response":
         """Создаёт ответ с ошибкой."""
         return cls(
@@ -69,13 +76,14 @@ class Response:
             meta=MetaInfo(
                 entity=entity,
                 operation=operation,
-                execution_time_ms=execution_time_ms
-            )
+                execution_time_ms=execution_time_ms,
+                retries=retries,
+            ),
         )
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Преобразует ответ в словарь."""
-        result = {
+        result: Dict[str, Any] = {
             "success": self.success,
             "data": self.data,
             "count": self.count,
@@ -83,13 +91,14 @@ class Response:
                 "entity": self.meta.entity,
                 "operation": self.meta.operation,
                 "affected_rows": self.meta.affected_rows,
-                "execution_time_ms": self.meta.execution_time_ms
-            }
+                "execution_time_ms": self.meta.execution_time_ms,
+                "retries": self.meta.retries,
+            },
         }
         if self.error:
             result["error"] = {
                 "code": self.error.code,
-                "message": self.error.message
+                "message": self.error.message,
             }
         else:
             result["error"] = None

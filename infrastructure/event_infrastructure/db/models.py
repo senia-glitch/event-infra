@@ -1,12 +1,13 @@
 """Модели данных для результатов и метрик."""
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 
 @dataclass
 class TaskResult:
     """Результат выполнения SQL-запроса."""
+
     success: bool
     data: Any = None
     error_code: int = 0
@@ -16,6 +17,7 @@ class TaskResult:
 @dataclass
 class ChannelMetrics:
     """Метрики одного канала."""
+
     name: str = ""
     queue_size: int = 0
     queue_maxsize: int = 0
@@ -30,6 +32,7 @@ class ChannelMetrics:
 @dataclass
 class InfrastructureMetrics:
     """Общие метрики инфраструктуры."""
+
     channels: dict[str, ChannelMetrics] = field(default_factory=dict)
     uptime_seconds: float = 0.0
     total_processed: int = 0
