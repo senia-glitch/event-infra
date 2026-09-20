@@ -10,6 +10,7 @@ class ErrorInfo:
 
     code: int
     message: str
+    type: str = "unknown_error"
 
 
 @dataclass
@@ -39,7 +40,7 @@ class Response:
         data: List[Dict[str, Any]],
         operation: str,
         entity: Optional[str] = None,
-        affected_rows: int = 0,
+        affected_rows: Optional[int] = None,
         execution_time_ms: float = 0.0,
         retries: int = 0,
     ) -> "Response":
@@ -51,7 +52,7 @@ class Response:
             meta=MetaInfo(
                 entity=entity,
                 operation=operation,
-                affected_rows=affected_rows or len(data),
+                affected_rows=affected_rows if affected_rows is not None else len(data),
                 execution_time_ms=execution_time_ms,
                 retries=retries,
             ),
@@ -66,13 +67,14 @@ class Response:
         entity: Optional[str] = None,
         execution_time_ms: float = 0.0,
         retries: int = 0,
+        error_type: str = "unknown_error",
     ) -> "Response":
         """Создаёт ответ с ошибкой."""
         return cls(
             success=False,
             data=None,
             count=0,
-            error=ErrorInfo(code=error_code, message=error_message),
+            error=ErrorInfo(code=error_code, message=error_message, type=error_type),
             meta=MetaInfo(
                 entity=entity,
                 operation=operation,
@@ -99,6 +101,7 @@ class Response:
             result["error"] = {
                 "code": self.error.code,
                 "message": self.error.message,
+                "type": self.error.type,
             }
         else:
             result["error"] = None

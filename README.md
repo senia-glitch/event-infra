@@ -9,6 +9,7 @@
 pip install git+https://github.com/senia-glitch/event-infra.git  # установка
 infra init                        # создать models.py, run_infrastructure.py, .infra.env, alembic/
 infra validate                    # проверить конфигурацию и БД
+infra upgrade                     # обновить пакет до последней версии с GitHub
 infra cheat                       # показать шпаргалку в терминале
 ```
 
@@ -41,7 +42,8 @@ async with router:
 | `router.list(entity, limit, offset, order_by, filters)` | Пагинация + фильтры |
 | `router.execute(channel, sql, params)` | SQL через очередь |
 | `router.custom(sql, params)` | SQL напрямую |
-| `router.health_check()` | Проверка всех каналов |
+| `router.health()` | Health check с контрактом (status, checks) |
+| `router.health_check()` | Health check (legacy dict) |
 | `router.get_metrics()` | Метрики + uptime |
 | `router.shutdown()` | Graceful остановка |
 
@@ -49,6 +51,7 @@ async with router:
 |-----|----------|
 | `infra init [-y]` | Инициализация проекта (с подтверждением) |
 | `infra validate` | Проверка конфигурации |
+| `infra upgrade [-y]` | Обновление пакета до последней версии с GitHub |
 | `infra monitor [interval]` | Мониторинг в реальном времени |
 | `infra reset <db_url> [-y]` | Полный сброс БД (с подтверждением) |
 | `infra test` | Запуск тестов |
@@ -75,7 +78,9 @@ async with router:
 - **Повторные попытки (retry)** — автоматические ретраи при ошибках соединения с экспоненциальной задержкой
 - **Мониторинг** — команды `infra monitor` и встроенные метрики
 - **Graceful shutdown** — корректное завершение всех воркеров и закрытие пулов
-- **Health check** — проверка работоспособности всех каналов и пулов
+- **Health check** — структурированный health check с контрактом `{status, checks: {database, pools, queues, cache}}`
+- **Типизированные ошибки БД** — класс `DatabaseError` с подклассами `UniqueConstraintError`, `ForeignKeyError`, `DatabaseDataError`, `DatabaseConnectionError`, `QueryTimeoutError` для точного определения типа ошибки
+- **Обновление через CLI** — команда `infra upgrade` проверяет новую версию на GitHub и обновляет пакет без затрагивания файлов проекта
 
 ## Требования
 
@@ -88,6 +93,15 @@ async with router:
 ```bash
 pip install git+https://github.com/senia-glitch/event-infra.git
 ```
+
+### Обновление
+
+```bash
+infra upgrade           # проверить и обновить до последней версии
+infra upgrade -y        # без подтверждения (для скриптов)
+```
+
+Команда `upgrade` обращается к `pyproject.toml` из main-ветки репозитория на GitHub, сравнивает версии и, если доступна более новая, выполняет `pip install --upgrade git+<repo>.git`. При несовместимости с текущей версией Python задаётся вопрос перед продолжением. Обновляется только пакет в site-packages — файлы проекта остаются нетронутыми.
 
 ## Быстрый старт
 
@@ -253,6 +267,9 @@ async with router:
     health = await router.health_check()  # dict с "alive", "db_connected", "pools", "channels"
     alive = await router.is_alive()       # bool
 
+    # Health check v2 — структурированный контракт
+    result = await router.health()        # HealthCheckResult: status, checks, uptime_seconds
+
     # Метрики
     metrics = router.get_metrics()        # InfrastructureMetrics
     router.print_metrics(full=True)       # вывод в stdout
@@ -273,13 +290,30 @@ result = await router.create("users", {"name": "Alice"})
 result.success          # True/False
 result.data             # [{"id": 1, "name": "Alice"}] или None
 result.count            # 1
-result.error            # ErrorInfo(code=422, message="...") или None
+result.error            # ErrorInfo(code=422, message="...", type="unique_violation") или None
 result.meta.entity      # "users"
 result.meta.operation   # "create"
 result.meta.affected_rows   # 1
 result.meta.execution_time_ms  # 1.2
 result.meta.retries     # 0
 ```
+
+### Ошибки БД
+
+Пакет предоставляет типизированные исключения для точного определения типа ошибки:
+
+```python
+from infrastructure.event_infrastructure.exceptions import (
+    DatabaseError,              # базовый класс всех ошибок БД
+    UniqueConstraintError,      # нарушение уникальности (HTTP 409)
+    ForeignKeyError,            # нарушение внешнего ключа (HTTP 422)
+    DatabaseDataError,          # ошибка данных (HTTP 422)
+    DatabaseConnectionError,    # ошибка соединения (HTTP 503)
+    QueryTimeoutError,          # таймаут запроса (HTTP 408)
+)
+```
+
+Ошибка классифицируется автоматически по типу SQLAlchemy-исключения. Тип ошибки доступен в `result.error.type`:
 
 ### PipelineConfig
 
@@ -326,6 +360,7 @@ router = await create_pipeline(
 ```bash
 infra init [--force] [-y]         Инициализация проекта (с подтверждением)
 infra validate                    Проверка конфигурации и подключения к БД
+infra upgrade [-y]                Обновление пакета до последней версии с GitHub
 infra monitor [интервал]          Мониторинг запущенной инфраструктуры
 infra reset <db_url> [-y]         Полный сброс БД (с подтверждением)
 infra test [-v, --verbose]        Запуск тестов

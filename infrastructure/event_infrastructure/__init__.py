@@ -8,5 +8,31 @@
 
 from .pipeline import create_pipeline, shutdown_pipeline
 from .router.router import EventRouter
+from .exceptions import (
+    InfrastructureError,
+    DatabaseError,
+    UniqueConstraintError,
+    ForeignKeyError,
+    DatabaseDataError,
+    DatabaseConnectionError,
+    QueryTimeoutError,
+    PipelineError,
+    ChannelError,
+    ValidationError,
+)
 
-__all__ = ["create_pipeline", "shutdown_pipeline", "EventRouter"]
+__all__ = [
+    "create_pipeline",
+    "shutdown_pipeline",
+    "EventRouter",
+    "InfrastructureError",
+    "DatabaseError",
+    "UniqueConstraintError",
+    "ForeignKeyError",
+    "DatabaseDataError",
+    "DatabaseConnectionError",
+    "QueryTimeoutError",
+    "PipelineError",
+    "ChannelError",
+    "ValidationError",
+]

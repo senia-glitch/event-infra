@@ -66,18 +66,28 @@ async def create_pipeline(
     final_cache = cache or config.cache
 
     orchestrator = Orchestrator(config)
-    await orchestrator.start()
+    try:
+        await orchestrator.start()
+    except Exception:
+        logger.exception("Ошибка при запуске оркестратора, очистка ресурсов")
+        await orchestrator.shutdown()
+        raise
 
-    router = EventRouter(
-        orchestrator=orchestrator,
-        schemas=schemas or {},
-        exclude_tables=exclude_tables,
-        default_timeout=config.default_timeout,
-        metrics_enabled=config.metrics_enabled,
-        max_concurrency=config.max_concurrency,
-        retry=final_retry,
-        cache=final_cache,
-    )
+    try:
+        router = EventRouter(
+            orchestrator=orchestrator,
+            schemas=schemas or {},
+            exclude_tables=exclude_tables,
+            default_timeout=config.default_timeout,
+            metrics_enabled=config.metrics_enabled,
+            max_concurrency=config.max_concurrency,
+            retry=final_retry,
+            cache=final_cache,
+        )
+    except Exception:
+        logger.exception("Ошибка при создании EventRouter, остановка оркестратора")
+        await orchestrator.shutdown()
+        raise
 
     return router
 

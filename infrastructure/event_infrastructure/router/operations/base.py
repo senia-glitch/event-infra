@@ -51,4 +51,5 @@ class BaseOperation(ABC):
                 operation=operation,
                 entity=entity,
                 execution_time_ms=execution_time_ms,
+                error_type=result.error_type or "unknown_error",
             )

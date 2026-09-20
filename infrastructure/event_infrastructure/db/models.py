@@ -1,7 +1,7 @@
 """Модели данных для результатов и метрик."""
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Optional
 
 
 @dataclass
@@ -12,6 +12,7 @@ class TaskResult:
     data: Any = None
     error_code: int = 0
     error_message: str = ""
+    error_type: Optional[str] = None
 
 
 @dataclass

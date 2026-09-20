@@ -1,9 +1,13 @@
 import argparse
 import asyncio
-import sys
-from pathlib import Path
-from importlib import resources
+import re
 import shutil
+import subprocess
+import sys
+from importlib import resources
+from pathlib import Path
+from typing import Optional
+from urllib.request import urlopen
 
 
 def _copy_template(template_name: str, dest: Path, force: bool = False) -> bool:
@@ -140,6 +144,138 @@ def _confirm(prompt: str) -> bool:
     return answer in ("y", "yes", "да")
 
 
+# === CLI upgrade ===
+
+REPO_URL = "https://github.com/senia-glitch/event-infra.git"
+RAW_PYPROJECT_URL = (
+    "https://raw.githubusercontent.com/senia-glitch/event-infra/main/pyproject.toml"
+)
+
+
+def _get_local_version() -> str:
+    try:
+        from importlib.metadata import version as get_version
+        return get_version("event-infra")
+    except Exception:
+        return "0.0.0"
+
+
+def _fetch_remote_pyproject() -> Optional[str]:
+    try:
+        with urlopen(RAW_PYPROJECT_URL, timeout=15) as resp:
+            return resp.read().decode("utf-8")
+    except Exception as e:
+        print(f"Не удалось загрузить pyproject.toml с GitHub: {e}")
+        return None
+
+
+def _parse_version(toml_text: str) -> Optional[tuple[int, ...]]:
+    m = re.search(r'^version\s*=\s*"([^"]+)"', toml_text, re.MULTILINE)
+    if not m:
+        return None
+    try:
+        return tuple(int(x) for x in m.group(1).split("."))
+    except ValueError:
+        return None
+
+
+def _parse_requires_python(toml_text: str) -> Optional[str]:
+    m = re.search(r'^requires-python\s*=\s*"([^"]+)"', toml_text, re.MULTILINE)
+    return m.group(1) if m else None
+
+
+def _parse_python_bounds(spec: str) -> tuple[Optional[int], Optional[int]]:
+    low, high = None, None
+    m = re.search(r'>=\s*(\d+)', spec)
+    if m:
+        low = int(m.group(1))
+    m = re.search(r'<\s*(\d+)', spec)
+    if m:
+        high = int(m.group(1)) - 1
+    if not re.search(r'>=', spec):
+        m = re.search(r'==\s*(\d+)', spec)
+        if m:
+            low = high = int(m.group(1))
+    return low, high
+
+
+def _find_pip() -> Optional[list[str]]:
+    if shutil.which("pip"):
+        return ["pip"]
+    r = subprocess.run([sys.executable, "-m", "pip", "--version"],
+                       capture_output=True, text=True)
+    if r.returncode == 0:
+        return [sys.executable, "-m", "pip"]
+    return None
+
+
+def upgrade(args: list[str] | None = None):
+    parser = argparse.ArgumentParser(
+        description="Обновление пакета event-infra до последней версии"
+    )
+    parser.add_argument("-y", "--yes", action="store_true",
+                        help="Не спрашивать подтверждение при несовместимости Python")
+    parsed = parser.parse_args(args)
+
+    local_ver_str = _get_local_version()
+    try:
+        local_ver = tuple(int(x) for x in local_ver_str.split("."))
+    except ValueError:
+        print(f"Ошибка: не удалось распознать текущую версию '{local_ver_str}'")
+        return
+    print(f"Текущая версия: {local_ver_str}")
+
+    print("Проверка обновлений на GitHub ...")
+    toml = _fetch_remote_pyproject()
+    if toml is None:
+        print("Обновление невозможно — не удалось получить данные с GitHub.")
+        return
+
+    remote_ver = _parse_version(toml)
+    if remote_ver is None:
+        print("Обновление невозможно — не удалось определить версию пакета.")
+        return
+
+    remote_ver_str = ".".join(str(x) for x in remote_ver)
+    print(f"Последняя версия: {remote_ver_str}")
+
+    if remote_ver <= local_ver:
+        print("Установлена последняя версия. Обновление не требуется.")
+        return
+
+    rp = _parse_requires_python(toml)
+    if rp:
+        low, high = _parse_python_bounds(rp)
+        cur = sys.version_info[:2]
+        in_range = True
+        if low is not None and cur < (low, 0):
+            in_range = False
+        if high is not None and cur > (high, 0):
+            in_range = False
+
+        if not in_range:
+            py_ver = f"{cur[0]}.{cur[1]}"
+            print(f"\nВНИМАНИЕ: версия {remote_ver_str} требует Python {rp}.")
+            print(f"Текущая версия Python: {py_ver}")
+            if not parsed.yes and not _confirm("Продолжить установку несмотря на несовместимость?"):
+                print("Отмена.")
+                return
+
+    pip = _find_pip()
+    if pip is None:
+        print("pip не найден. Установите pip перед обновлением.")
+        return
+
+    cmd = pip + ["install", "--upgrade", f"git+{REPO_URL}"]
+    print(f"\nВыполняю: {' '.join(cmd)}\n")
+    result = subprocess.run(cmd)
+    if result.returncode == 0:
+        new_ver = _get_local_version()
+        print(f"\nГотово. Установлена версия: {new_ver}")
+    else:
+        print(f"\nОшибка обновления (код возврата: {result.returncode}).")
+
+
 def init(args: list[str] | None = None):
     parser = argparse.ArgumentParser(description="Инициализация инфраструктурного слоя в текущей директории")
     parser.add_argument("--force", action="store_true", help="Перезаписать существующие файлы")
@@ -195,7 +331,11 @@ def monitor(args: list[str] | None = None):
 
     from infrastructure.monitor import monitor as _monitor
 
-    interval = float(args[0]) if args else 0.5
+    try:
+        interval = float(args[0]) if args else 0.5
+    except (ValueError, IndexError):
+        print("Ошибка: интервал должен быть числом (например, 0.5)")
+        return
     try:
         asyncio.run(_monitor(interval))
     except KeyboardInterrupt:
@@ -285,6 +425,7 @@ def cheat(args: list[str] | None = None):
 
   infra init [--force] [-y]        инициализация
   infra validate                  проверка конфигурации
+  infra upgrade [-y]              обновление пакета с GitHub
   infra monitor [interval]        мониторинг
   infra reset <db_url> [-y]       сброс БД
   infra test [-v]                 тесты
@@ -308,6 +449,7 @@ def help_command():
   infra validate                    Проверка конфигурации и подключения к БД
   infra monitor [интервал]          Мониторинг запущенной инфраструктуры (подключение к API)
   infra reset <db_url> [-y]         Полный сброс БД и удаление миграций
+  infra upgrade [-y]                Обновление пакета до последней версии с GitHub
   infra test [-v, --verbose]        Запуск встроенных тестов (требуется тестовая БД)
   infra cheat                       Шпаргалка по API
   infra help                        Показать эту справку
@@ -343,6 +485,8 @@ def main():
     elif command == "test":
         verbose = "-v" in args or "--verbose" in args
         run_tests(verbose=verbose)
+    elif command == "upgrade":
+        upgrade(args)
     elif command in ("help", "-h", "--help"):
         help_command()
     else:

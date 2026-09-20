@@ -50,3 +50,8 @@ class QueueManager:
         """Прекращает приём новых задач."""
         self._accepting = False
         logger.info("Очереди: новые задачи не принимаются")
+
+    @property
+    def is_accepting(self) -> bool:
+        """Возвращает True если очереди принимают новые задачи."""
+        return self._accepting

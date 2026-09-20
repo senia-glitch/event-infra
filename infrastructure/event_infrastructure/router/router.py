@@ -21,6 +21,7 @@ from .operations import (
 )
 from .response import Response
 from .cache import MemoryCache
+from .health import HealthCheckResult, HealthStatus
 from ..config.models import RetryConfig, CacheConfig
 
 logger = logging.getLogger(__name__)
@@ -161,7 +162,28 @@ class EventRouter:
         total_start = time.monotonic()
 
         for attempt in range(rc.max_retries + 1):
-            response = await coro()
+            try:
+                response = await coro()
+            except Exception as e:
+                logger.exception("Неперехваченное исключение в _with_retry (попытка %d): %s", attempt, e)
+                last_response = Response.error_response(
+                    error_code=500,
+                    error_message=str(e),
+                    operation=last_response.meta.operation if last_response else "unknown",
+                )
+                if attempt < rc.max_retries:
+                    if rc.max_total_timeout > 0:
+                        elapsed = time.monotonic() - total_start
+                        if elapsed + delay >= rc.max_total_timeout:
+                            break
+                    logger.debug(
+                        "Повтор %d/%d (исключение) через %.2fs", attempt + 1, rc.max_retries, delay
+                    )
+                    await asyncio.sleep(delay)
+                    delay *= rc.backoff_multiplier
+                else:
+                    break
+                continue
 
             if response.success:
                 response.meta.retries = attempt
@@ -185,10 +207,15 @@ class EventRouter:
                 break
 
         if last_response:
-            last_response.meta.retries = rc.max_retries
-        return last_response
+            last_response.meta.retries = attempt
+            return last_response
+        return Response.error_response(
+            error_code=500,
+            error_message="Unknown error: no response from operation",
+            operation="unknown",
+        )
 
-    def _cache_key(self, entity: str, id: int) -> str:
+    def _cache_key(self, entity: str, id: Any) -> str:
         return f"{entity}:{id}"
 
     # ================================================================
@@ -452,10 +479,11 @@ class EventRouter:
             pool_health = await self._db.health_check()
             result["pools"] = pool_health
             result["db_connected"] = any(pool_health.values())
+            result["alive"] = result["db_connected"]
         except Exception as e:
             result["alive"] = False
             result["error"] = str(e)
-            result["pools"] = {name: False for name in self._db._pools.channels}
+            result["pools"] = {name: False for name in self._db.channel_names}
 
         m = self._db.get_metrics()
         result["uptime_seconds"] = m.uptime_seconds
@@ -483,6 +511,83 @@ class EventRouter:
             return any(pool_health.values())
         except Exception:
             return False
+
+    async def health(self) -> HealthCheckResult:
+        """Стабильный публичный контракт health-check.
+
+        Возвращает структурированный объект со статусом и компонентами:
+        - status: "ok" | "degraded" | "down"
+        - checks: {database: {...}, pools: {...}, queues: {...}, cache: {...}}
+        - uptime_seconds: float
+
+        Статус:
+        - ok: все каналы здоровы
+        - degraded: хотя бы один канал недоступен
+        - down: ни один канал не доступен
+
+        Returns:
+            HealthCheckResult со статусом и деталями компонентов
+        """
+        checks: dict[str, Any] = {}
+
+        # Проверка БД через PoolManager
+        try:
+            pool_health = await self._db.health_check()
+        except Exception as e:
+            pool_health = {name: False for name in self._db.channel_names}
+            checks["database"] = {"status": "down", "error": str(e)}
+
+        healthy_count = sum(1 for v in pool_health.values() if v)
+        total_count = len(pool_health)
+
+        if "database" not in checks:
+            if healthy_count == total_count:
+                checks["database"] = {"status": "ok"}
+            elif healthy_count > 0:
+                checks["database"] = {"status": "degraded"}
+            else:
+                checks["database"] = {"status": "down"}
+
+        checks["pools"] = {
+            name: {"healthy": healthy, "channel": name}
+            for name, healthy in pool_health.items()
+        }
+
+        # Метрики каналов
+        m = self._db.get_metrics()
+        checks["queues"] = {}
+        for name, ch in m.channels.items():
+            checks["queues"][name] = {
+                "size": ch.queue_size,
+                "maxsize": ch.queue_maxsize,
+                "accepting": m.is_accepting,
+                "active_workers": ch.active_workers,
+                "pool_size": ch.pool_size,
+            }
+
+        # Кеш
+        if self._cache:
+            checks["cache"] = {"status": "ok", "size": self._cache.size}
+        else:
+            checks["cache"] = {"status": "disabled"}
+
+        # Определение общего статуса
+        if healthy_count == 0:
+            status = HealthStatus.DOWN
+            message = "All channels are unavailable"
+        elif healthy_count < total_count:
+            status = HealthStatus.DEGRADED
+            message = f"{healthy_count}/{total_count} channels healthy"
+        else:
+            status = HealthStatus.OK
+            message = ""
+
+        return HealthCheckResult(
+            status=status,
+            checks=checks,
+            uptime_seconds=m.uptime_seconds,
+            message=message,
+        )
 
     # ================================================================
     # Метрики и статистика

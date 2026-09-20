@@ -28,6 +28,7 @@ class Orchestrator:
         self._queues = QueueManager(config)
         self._dispatchers: dict[str, Dispatcher] = {}
         self._start_time = 0.0
+        self._is_shut_down = False
 
         for name, ch in config.channels.items():
             self._dispatchers[name] = Dispatcher(
@@ -52,10 +53,33 @@ class Orchestrator:
             params: Параметры запроса
             timeout: Таймаут выполнения (сек). Если None — используется default_timeout из конфига.
         """
+        if self._is_shut_down:
+            return TaskResult(
+                success=False,
+                error_code=503,
+                error_message="Orchestrator is shut down",
+                error_type="connection_error",
+            )
         effective_timeout = timeout if timeout is not None else self._config.default_timeout
         task = SQLTask(sql=sql, params=params, timeout=effective_timeout)
-        await self._queues.put(channel, task)
-        return await task.get_future()
+        try:
+            await self._queues.put(channel, task)
+        except (RuntimeError, ValueError):
+            return TaskResult(
+                success=False,
+                error_code=503,
+                error_message="Orchestrator is shut down or channel not found",
+                error_type="connection_error",
+            )
+        try:
+            return await asyncio.wait_for(task.get_future(), timeout=effective_timeout + 1.0)
+        except asyncio.TimeoutError:
+            return TaskResult(
+                success=False,
+                error_code=503,
+                error_message="Task future timed out (possible shutdown during enqueue)",
+                error_type="connection_error",
+            )
 
     async def read(self, sql: str, params: dict = None, timeout: float = None) -> TaskResult:
         return await self.execute("read", sql, params, timeout)
@@ -95,7 +119,7 @@ class Orchestrator:
             total_processed=total_processed,
             total_failed=total_failed,
             total_queued=total_queued,
-            is_accepting=self._queues._accepting,
+            is_accepting=self._queues.is_accepting,
             start_time=self._start_time,
         )
 
@@ -103,14 +127,24 @@ class Orchestrator:
         """Проверяет работоспособность всех каналов."""
         return await self._pools.health_check()
 
+    @property
+    def channel_names(self) -> list[str]:
+        """Возвращает список имён каналов."""
+        return self._pools.channels
+
     async def shutdown(self, timeout: float = None) -> None:
+        if self._is_shut_down:
+            logger.debug("Оркестратор уже остановлен, пропускаем shutdown")
+            return
+        self._is_shut_down = True
+
         if timeout is None:
             timeout = self._config.shutdown_timeout
 
         self._queues.stop_accepting()
 
         # Параллельный shutdown всех диспетчеров
-        await asyncio.gather(*[d.shutdown(timeout) for d in self._dispatchers.values()])
+        await asyncio.gather(*[d.shutdown(timeout) for d in self._dispatchers.values()], return_exceptions=True)
 
         await self._pools.close_all()
         logger.info("Оркестратор остановлен")

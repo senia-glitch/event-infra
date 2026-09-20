@@ -128,7 +128,11 @@ async def monitor(interval: float = 0.5):
 
 
 if __name__ == "__main__":
-    interval = float(sys.argv[1]) if len(sys.argv) > 1 else 0.5
+    try:
+        interval = float(sys.argv[1]) if len(sys.argv) > 1 else 0.5
+    except (ValueError, IndexError):
+        print("Ошибка: интервал должен быть числом (например, 0.5)")
+        sys.exit(1)
     try:
         asyncio.run(monitor(interval))
     except KeyboardInterrupt:

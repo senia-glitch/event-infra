@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "event-infra"
-version = "0.2.0"
+version = "0.3.0"
 description = "Инфраструктурный слой: миграции, event router, мониторинг"
 readme = "README.md"
 requires-python = ">=3.10"

@@ -13,8 +13,8 @@ class ChannelConfig:
     workers: int = 0
 
     def __post_init__(self) -> None:
-        if self.pool_size < 0:
-            raise ValueError(f"pool_size must be >= 0, got {self.pool_size}")
+        if self.pool_size < 1:
+            raise ValueError(f"pool_size must be >= 1, got {self.pool_size}")
         if self.max_overflow < 0:
             raise ValueError(f"max_overflow must be >= 0, got {self.max_overflow}")
         if self.queue_maxsize < 1:
@@ -104,8 +104,10 @@ class PipelineConfig:
     shutdown_timeout: float = 10.0
 
     def __post_init__(self) -> None:
-        if not self.db_url:
+        if not self.db_url or not self.db_url.strip():
             raise ValueError("db_url must not be empty")
+        if not self.channels:
+            raise ValueError("channels must not be empty")
         if self.pool_recycle < 0:
             raise ValueError(f"pool_recycle must be >= 0, got {self.pool_recycle}")
         if self.pool_timeout < 0:

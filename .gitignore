@@ -26,3 +26,6 @@ alembic/
 .DS_Store
 # Local env
 .infra.env
+
+text.py
+.coverage
